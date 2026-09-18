@@ -1,25 +1,93 @@
 #!/usr/bin/env bash
 # Test suite for guard.py. Run: bash scripts/hooks/test-guard.sh   (exit 1 on any mismatch)
+#
+# The suite builds its own throwaway control plane in a temp directory and runs every case
+# against a copy of guard.py placed inside it, so it proves the same thing on a fresh clone as
+# on a machine with years of lanes on it — and it never reads or writes the real lanes, mirrors
+# or memory. A run that cannot build its fixture FAILS: a safety suite that exits 0 without
+# having asserted anything is worse than no suite at all.
+set -u
 cd "$(dirname "$0")/../.." || exit 1
-AD=$PWD; W=$AD/lanes/docs/docs; fail=0
-# These cases are written against a configured workspace: a lane with a repo in it, a mirror,
-# and an attached reference. On a fresh install none of that exists yet, and "no fixtures" is not a
-# failure — say so and stop, so `lane doctor` stays the check that always works.
-if [ ! -d "$W" ] || [ ! -d "$AD/repos/$(basename "$W")" ]; then
-  echo "Skipped: this suite needs a configured workspace (a lane, its repo, and a mirror)."
-  echo "The always-available check is:  lane doctor"
-  exit 0
-fi
-# A second, live lane to test reach-in against. Chosen at run time, because hardcoding
-# one meant the suite started failing the day that lane was closed.
+SRC=$PWD; fail=0; cases=0; passed=0
+EXPECTED_CASES=179   # every case is counted; a run that asserts fewer is itself a failure
+
+die(){ echo "!! test-guard: $*" >&2; exit 1; }
+
+# The fixture lives under $HOME because two rules are about $HOME: paths outside the control
+# plane but inside the home directory are refused, and /tmp is deliberately allowed as the
+# scratchpad. A plane under /tmp would quietly turn those cases into no-ops.
+TMPROOT=$(mktemp -d "$HOME/.lane-test-guard.XXXXXX") || die "cannot create a temp directory"
+cleanup(){ [ -n "${TMPROOT:-}" ] && rm -rf "$TMPROOT"; }
+trap cleanup EXIT INT TERM
+
+AD=$TMPROOT/plane                 # the throwaway control plane every case is written against
+REF=$TMPROOT/client-docs          # an outside folder, attached to the lane as a reference
+
+mkgit(){ mkdir -p "$1" || die "mkdir $1"; printf 'gitdir: %s/.gitdir\n' "$1" > "$1/.git"; }
+
+mkdir -p "$AD"/{scripts/hooks,docs,memory/docs,knowledge,registry/lanes,.claude} "$REF" || die "cannot lay out the fixture"
+# A copy, never a symlink: guard.py locates the control plane from its own real path, so a
+# symlinked guard would judge every case against the developer's real plane instead.
+cat "$SRC/scripts/hooks/guard.py" > "$AD/scripts/hooks/guard.py" || die "cannot copy guard.py"
+cat "$SRC/registry/config.yml" > "$AD/registry/config.yml" 2>/dev/null || : > "$AD/registry/config.yml"
+: > "$AD/registry/repos.yaml"; : > "$AD/CLAUDE.md"; : > "$AD/docs/rules.md"
+echo '{}' > "$AD/.claude/settings.json"
+# Files the memory rules distinguish by existence: editing one that is already there is allowed
+# from the root session, creating a new one never is.
+echo '# memory' > "$AD/memory/MEMORY.md"
+echo '# commit discipline' > "$AD/memory/commit-discipline.md"
+echo '# preferences' > "$AD/knowledge/preferences.md"
+echo 'x' > "$AD/memory/docs/x.md"
+for r in docs api web; do mkgit "$AD/repos/$r"; echo r > "$AD/repos/$r/README.md"; : > "$AD/repos/$r/.env.example"; done
+for r in docs api web; do mkgit "$AD/lanes/docs/$r"; done
+mkdir -p "$AD/lanes/docs/.claude" "$AD/lanes/docs/refs" "$AD/lanes/docs/docs/app"
+for r in web api; do mkgit "$AD/lanes/ABC-124-example/$r"; done
+echo r > "$REF/README.md"; : > "$REF/x.txt"
+ln -s "$REF" "$AD/lanes/docs/refs/client-docs" || die "cannot attach the reference"
+w(){ cat > "$AD/registry/lanes/$1.md"; }
+w docs <<EOF
+---
+id: docs
+status: active
+repos:
+  - repo: docs
+    branch: docs
+  - repo: api
+    branch: docs
+refs:
+  - path: $REF
+    name: client-docs
+    mode: read
+---
+EOF
+w ABC-124-example <<'EOF'
+---
+id: ABC-124-example
+status: active
+repos:
+  - repo: web
+    branch: ABC-124
+---
+EOF
+w ABC-123-example <<'EOF'
+---
+id: ABC-123-example
+status: active
+EOF
+
+W=$AD/lanes/docs/docs
+[ -d "$W" ] && [ -d "$AD/repos/docs" ] || die "the fixture did not come out right — no lane or no mirror"
+# A second, live lane to test reach-in against; discovered the same way a real plane would be read.
 OTHER=$(for d in "$AD"/lanes/*/; do id=$(basename "$d"); [ "$id" = docs ] && continue;
   for r in "$d"*/; do [ -e "$r/.git" ] && { echo "${id}/$(basename "$r")"; break 2; }; done; done)
-[ -n "$OTHER" ] || { echo "no second lane on disk - cannot test reach-in"; exit 1; }
+[ -n "$OTHER" ] || die "the fixture has no second lane — cannot test reach-in"
+
 j(){ python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$1"; }
-run(){ printf '%s' "$1" | python3 scripts/hooks/guard.py 2>/dev/null | grep -o '"permissionDecision": "[a-z]*"' | cut -d'"' -f4; }
+run(){ printf '%s' "$1" | python3 "$AD/scripts/hooks/guard.py" 2>/dev/null | grep -o '"permissionDecision": "[a-z]*"' | cut -d'"' -f4; }
 expect(){ # expect <deny|allow|pass> <label> <json>
+  cases=$((cases+1))
   got=$(run "$3"); got=${got:-pass}
-  if [ "$got" = "$1" ]; then printf "  ok    %-6s %s\n" "$got" "$2"; else printf "  FAIL  want %-5s got %-5s %s\n" "$1" "$got" "$2"; fail=1; fi
+  if [ "$got" = "$1" ]; then passed=$((passed+1)); printf "  ok    %-6s %s\n" "$got" "$2"; else printf "  FAIL  want %-5s got %-5s %s\n" "$1" "$got" "$2"; fail=1; fi
 }
 bash_case(){ expect "$1" "bash: $2" "{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Bash\",\"cwd\":\"$W\",\"tool_input\":{\"command\":$(j "$2")}}"; }
 file_case(){ expect "$1" "$2 $3" "{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"$2\",\"cwd\":\"$W\",\"tool_input\":{\"file_path\":\"$3\"}}"; }
@@ -197,7 +265,7 @@ bash_case deny  "echo x > $AD/docs/rules.md"
 bash_case deny  "echo x > $AD/registry/repos.yaml"
 bash_case deny  "echo '{}' > $AD/.claude/settings.json"
 bash_case deny  "echo '{}' > $W/.claude/settings.local.json"
-bash_case deny  "echo x > $AD/registry/lanes/$(basename "$OTHER" | cut -d/ -f1).md"
+bash_case deny  "echo x > $AD/registry/lanes/${OTHER%%/*}.md"
 # ordinary work must be unaffected
 bash_case pass  "echo x >> $W/app.py"
 bash_case pass  "echo x > /tmp/scratch.txt"
@@ -212,4 +280,12 @@ echo "== re-pinning: aiming at your OWN lane says how, not 'do not create anothe
 expect deny "EnterWorktree path=own lane root" "{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"EnterWorktree\",\"cwd\":\"$AD/lanes/docs/docs\",\"tool_input\":{\"path\":\"$AD/lanes/docs\"}}"
 expect deny "EnterWorktree name=own lane" "{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"EnterWorktree\",\"cwd\":\"$AD/lanes/docs/docs\",\"tool_input\":{\"name\":\"docs\"}}"
 expect deny "EnterWorktree name=another lane" "{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"EnterWorktree\",\"cwd\":\"$AD/lanes/docs/docs\",\"tool_input\":{\"name\":\"ABC-124-example\"}}"
+echo
+echo "$passed/$cases cases passed"
+# A suite that quietly stopped asserting looks exactly like a suite that passed, so the
+# number of cases is itself an assertion.
+if [ "$cases" -ne "$EXPECTED_CASES" ]; then
+  echo "!! expected $EXPECTED_CASES cases, ran $cases — cases were added or lost; update EXPECTED_CASES deliberately"
+  exit 1
+fi
 [ $fail -eq 0 ] && echo "ALL PASS" || { echo "FAILURES"; exit 1; }

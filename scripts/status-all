@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # status-all: one board — repos, lanes, drift.
 source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
-"$AD/scripts/hooks/guard-check" || echo "   (fix guard.py before trusting any of the state below)"
+"$AD/scripts/hooks/guard-check" -q || echo "   (fix guard.py before trusting any of the state below)"
 echo "== repos (primary mirrors)"
 for r in "$REPOS"/*/; do n=$(basename "$r"); def=$(repo_default "$n")
   git -C "$r" fetch -q origin 2>/dev/null || true

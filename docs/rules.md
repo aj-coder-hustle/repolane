@@ -54,6 +54,9 @@ Not from whatever happens to be checked out.
 Commits are proposed, and shaped as coherent units: neither one commit per edit nor one enormous
 commit at the end.
 
-`lane doctor` checks two things: that the guard compiles and still refuses a known-denied probe,
-and that every lane and worktree is still wired to it. A session whose `settings.local.json` lost
+`lane doctor` checks three things: that the guard compiles, that it still answers nine named
+probes the way it should (eight refusals and one ordinary command it must leave alone), and that
+every lane and worktree is still wired to it. It prints each verdict, so the answer is something
+you can check rather than something you have to believe; `lane doctor -v` also runs the full
+179-case suite. A session whose `settings.local.json` lost
 its hooks is unguarded even when the guard itself is perfectly healthy, so both are checked.

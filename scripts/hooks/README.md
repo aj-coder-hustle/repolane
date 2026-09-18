@@ -6,7 +6,7 @@ thing that refuses.
 | | |
 |---|---|
 | `guard.py` | the whole dispatcher — one file, no dependencies |
-| `guard-check` | is it healthy? compiles it and fires a known-denied probe (`lane doctor`) |
+| `guard-check` | is it healthy? compiles it, fires nine named probes, checks every lane is wired (`lane doctor`; `-v` also runs the suite) |
 | `test-guard.sh` | 163 cases covering every rule |
 
 ## How it is wired
@@ -75,9 +75,13 @@ Run the suite:
 bash scripts/hooks/test-guard.sh
 ```
 
-It needs a configured workspace — a lane with a repo, a mirror, an attached reference, a second
-lane to test reach-in against, and an existing memory file. Without those it prints "Skipped"
-rather than a false pass, and `lane doctor` remains the check that always works.
+It builds its own throwaway control plane under a temp directory — a lane with repos, a mirror,
+an attached reference, a second lane to test reach-in against, an existing memory file — copies
+`guard.py` into it (a copy, not a symlink: the guard finds the control plane from its own real
+path) and runs every case there. So it asserts the same 179 cases on a fresh clone as on a machine
+full of work, and it never reads or writes your real lanes, mirrors or memory. If the fixture
+cannot be built the run fails; it never skips. The case count is itself an assertion, so adding
+or losing a case fails until `EXPECTED_CASES` is changed deliberately.
 
 A case is one line:
 

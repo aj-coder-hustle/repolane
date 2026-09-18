@@ -80,9 +80,24 @@ case "$cmd" in
     # The long-form names (lane-start, lane-run, lane-memory …) are what the guard messages, the
     # agent prompts and the docs tell you to type. Link them too, or every one of those
     # instructions is a command not found.
+    # bin/ holds the commands and its own README. Runnable-and-not-a-directory is the question
+    # that matters; matching on the name would go stale the next time a command is added.
+    is_cmd(){ [ -x "$1" ] && [ ! -d "$1" ]; }
+    # An earlier version linked every entry in bin/, so bin/README.md ended up on the PATH as a
+    # command. Take such a link back out — but only when it points into a Repolane bin/ (one with
+    # lane-start in it) at something that is not a command, never at an unrelated file the user
+    # keeps in the same folder.
+    for l in "$dest"/*; do
+      [ -L "$l" ] || continue
+      b=$(basename "$l"); [ "$b" = lane ] && continue
+      d=$(dirname "$(readlink "$l")")
+      [ -e "$d/lane-start" ] || continue
+      is_cmd "$d/$b" && continue
+      rm -f "$l" && echo "unlinked $dest/$b — it is not a command; an older install put it on your PATH"
+    done
     n=0
     for f in "$AD"/bin/*; do
-      [ -e "$f" ] || continue
+      is_cmd "$f" || continue
       b=$(basename "$f"); [ "$b" = lane ] && continue
       ln -sf "$f" "$dest/$b" && n=$((n+1))
     done

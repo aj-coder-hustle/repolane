@@ -69,8 +69,11 @@ Nothing is written silently. Claude drafts the memory, then asks whether it belo
 | `lane env <repo>` | check a repo's `.env` is wired — names only, never values |
 | `lane keys <path>` | list the key names in an env file, never the values |
 
-`lane doctor` is the one to run when something feels wrong. It compiles the guard and fires a
-known-denied probe at it, and fails loudly if the answer comes back as anything but a refusal.
+`lane doctor` is the one to run when something feels wrong. It compiles the guard, fires nine
+named probes at it and prints each verdict — eight that must be refused and one ordinary command
+that must not, because a guard that refuses everything is broken too — then checks that every lane
+and worktree is still wired to it. `lane doctor -v` adds every wiring location and runs the full
+179-case suite against a throwaway control plane it builds and deletes. Any failure exits non-zero.
 
 ## Long-form names
 
