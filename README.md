@@ -9,7 +9,9 @@ inside the work it was actually asked to do.
 
 The command is `lane`.
 
-[Install](#install) · [How it works](#how-it-works) · [The rules](#why-it-refuses-things) · [Docs](docs/) · [MIT](LICENSE)
+**[repolane.dev](https://repolane.dev)**
+
+[Install](#install) · [How it works](#how-it-works) · [The rules](#why-it-refuses-things) · [Docs](https://repolane.dev/docs/concepts/) · [MIT](LICENSE)
 
 </div>
 
@@ -187,6 +189,9 @@ a folder per piece of work, a resume note you wrote to yourself — has nothing 
 The hooks simply do not fire when Claude is not the one running.
 
 ## Documentation
+
+Everything is readable on the site at **[repolane.dev/docs](https://repolane.dev/docs/concepts/)**,
+and in this repo:
 
 | | |
 |---|---|
