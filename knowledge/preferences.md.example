@@ -1,0 +1,25 @@
+# Preferences
+
+How you want to be worked with. Claude reads this at the start of any session that writes code.
+Delete what does not apply and add what does.
+
+## Communication
+
+- Plain words. Explain a diagram rather than writing three paragraphs.
+- Say what changed and what is still broken. Do not hedge finished work.
+
+## Before acting
+
+- Discuss anything with judgement in it: a new lane's name, scope, or approach.
+- Run read-only things freely.
+
+## Commits and branches
+
+- Ask before committing.
+- Commits are coherent units, not one per edit and not one giant one.
+- Never push to a default branch without being told.
+
+## Code
+
+- Match the surrounding style rather than importing your own.
+- Say when a change needs a test, and write it.

@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# lane — the single entry point.
+#
+#   lane                 what is going on right now
+#   lane <command> …     everything else
+#   lane help            the full list
+#
+# There is nothing else to learn. Every command below is one word.
+set -u
+# Resolve through symlinks: `lane` is normally invoked via a link on your PATH, and the scripts it
+# runs live next to the real file, not next to the link.
+_self="${BASH_SOURCE[0]:-$0}"
+while [ -L "$_self" ]; do
+  _l=$(readlink "$_self")
+  case "$_l" in /*) _self="$_l" ;; *) _self="$(dirname "$_self")/$_l" ;; esac
+done
+AD="$(cd "$(dirname "$_self")" && pwd)"
+S="$AD/scripts"
+
+# command → implementation, and the one line shown in `lane help`
+map(){ case "$1" in
+  init)        echo "$S/init|set this machine up (safe to re-run)" ;;
+  add)         echo "$S/repo-add|bring a repo under management: lane add <git-url> [name]" ;;
+  start)       echo "$S/lane-start|start a piece of work: lane start <id> <repo> [<repo>…]" ;;
+  resume)      echo "$S/lane-resume|pick work back up: lane resume <id>" ;;
+  park)        echo "$S/lane-park|leave work for later: lane park <id> \"<note>\"" ;;
+  done)        echo "$S/lane-done|finish and clean up: lane done <id>" ;;
+  status)      echo "$S/status-all|where everything stands" ;;
+  brief)       echo "$S/lane-brief|catch up on one piece of work: lane brief <id>" ;;
+  board)       echo "$S/lane-board|open the board in a browser" ;;
+  with)        echo "$S/lane-add|add a repo to work already started: lane with <id> <repo>" ;;
+  run)         echo "$S/lane-run|run a command inside a repo: lane run <repo> <cmd…>" ;;
+  gh)          echo "$S/lane-gh|GitHub inside a repo: lane gh <repo> pr create" ;;
+  ref)         echo "$S/lane-ref|attach outside code or docs: lane ref <id> add <path>" ;;
+  note)        echo "$S/lane-memory|write something worth remembering" ;;
+  merge)       echo "$S/lane-merge|two pieces of work turned out to be one" ;;
+  plan)        echo "$S/lane-merge-plan|preview a merge without doing it" ;;
+  sessions)    echo "$S/sessions|past Claude conversations for a repo" ;;
+  audit)       echo "$S/branch-audit|branches that look finished or stale" ;;
+  workspace)   echo "$S/lane-workspace|editor workspace file for a piece of work" ;;
+  env)         echo "$S/lane-env-check|check a repo's .env is wired (names only, never values)" ;;
+  keys)        echo "$S/lane-env-keys|list the key names in an env file, never the values" ;;
+  doctor)      echo "$S/hooks/guard-check|check the safety rules are working" ;;
+  import)      echo "$S/lane-import|bring past Claude conversations in (optional)" ;;
+  nested)      echo "$S/lane-nested|find and repair nested worktrees" ;;
+  menu)        echo "$S/menu|the long-form menu (needs bin/ on your PATH)" ;;
+  "")          echo "$S/status-all|what is going on right now" ;;
+  *)           return 1 ;;
+esac; }
+
+ORDER="init add import start resume park done status brief board with run gh ref note merge plan sessions audit workspace env keys doctor nested"
+
+usage(){
+  printf '\n  \e[1mlane\e[0m — one piece of work at a time, across all your repos\n\n'
+  for c in $ORDER; do
+    line=$(map "$c"); printf "    \e[1m%-10s\e[0m %s\n" "$c" "${line#*|}"
+  done
+  printf '\n    %-10s %s\n\n' "install" "put lane on your PATH so it works from anywhere"
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  -h|--help|help) usage; exit 0 ;;
+  --version|version) printf 'lane %s\n' "$(cd "$AD" && git describe --tags --always 2>/dev/null || echo dev)"; exit 0 ;;
+  install)
+    dest="${2:-$HOME/.local/bin}"; mkdir -p "$dest" || exit 1
+    ln -sf "$AD/lane" "$dest/lane" && echo "linked $dest/lane -> $AD/lane"
+    # The long-form names (lane-start, lane-run, lane-memory …) are what the guard messages, the
+    # agent prompts and the docs tell you to type. Link them too, or every one of those
+    # instructions is a command not found.
+    n=0
+    for f in "$AD"/bin/*; do
+      [ -e "$f" ] || continue
+      b=$(basename "$f"); [ "$b" = lane ] && continue
+      ln -sf "$f" "$dest/$b" && n=$((n+1))
+    done
+    echo "linked $n long-form commands (lane-start, lane-run, …) into $dest"
+    case ":$PATH:" in
+      *":$dest:"*) echo "ready — run: lane" ;;
+      *) echo; echo "add this to your shell profile, then open a new terminal:"; echo "  export PATH=\"$dest:\$PATH\"" ;;
+    esac; exit 0 ;;
+esac
+
+if entry=$(map "$cmd"); then
+  shift 2>/dev/null || true
+  exec "${entry%%|*}" "$@"
+fi
+
+# not a command — say so, and guess what was meant
+printf '\e[31mlane: no command named "%s"\e[0m\n' "$cmd" >&2
+near=$(for c in $ORDER; do [[ $c == *"$cmd"* ]] && echo "  lane $c"; done)
+[ -n "$near" ] && { echo "did you mean:" >&2; echo "$near" >&2; }
+echo >&2; echo "  lane help   for the full list" >&2
+exit 2

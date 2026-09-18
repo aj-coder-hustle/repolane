@@ -1,0 +1,240 @@
+#!/usr/bin/env bash
+# lane-merge <a> <b> [options]        joins two lanes. Prints the plan; changes nothing without --run.
+#
+#   default (absorb)        B keeps its branches; A's commits are merged into them. A is archived.
+#   --new-branch <name>     every repo of the joined lane moves onto ONE new branch <name>,
+#                           created from B's branch and carrying A's commits. Both original branches
+#                           stay exactly as they are — nothing is committed on top of them.
+#   --as <new-id>           the result is a NEW lane <new-id>; A and B are both archived.
+#                           Implies --new-branch <new-id> unless you name one.
+#   --run                   actually do it. Must be run from the lane root: worktrees move.
+#
+# `lane-merge-plan <a> <b> [...]` is a read-only twin of this command — same output, cannot change
+# anything — for use from inside a lane where a plain `lane-merge` looks risky.
+#
+# Per repo:
+#   in both      -> merge (or, with --new-branch, branch from B's then merge A's into the new branch)
+#   only in A    -> its worktree moves across (and onto the new branch, if one was named)
+#   only in B    -> untouched (or moved onto the new branch, if one was named)
+#
+# Goal, resume note and findings are appended under dated headings; references are unioned.
+# Branches are never deleted. Stops on a conflict and leaves the worktree for you to resolve.
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+
+A="${1:-}"; B="${2:-}"; shift 2 2>/dev/null || true
+NEWBR=""; NEWID=""; RUN=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --new-branch) NEWBR="${2:-}"; shift 2;;
+    --as) NEWID="${2:-}"; shift 2;;
+    --run) RUN=1; shift;;
+    *) die "unknown option: $1";;
+  esac
+done
+[ -n "$A" ] && [ -n "$B" ] || die "usage: lane-merge <a> <b> [--new-branch <name>] [--as <new-id>] [--run]"
+[ "$A" != "$B" ] || die "same lane"
+fa=$(lane_file "$A"); fb=$(lane_file "$B")
+[ -f "$fa" ] || die "no lane '$A'"; [ -f "$fb" ] || die "no lane '$B'"
+[ -n "$NEWID" ] && [ -z "$NEWBR" ] && NEWBR="$NEWID"
+[ -n "$NEWID" ] && [ -f "$(lane_file "$NEWID")" ] && die "lane '$NEWID' already exists"
+for n in "$NEWID" "$NEWBR"; do
+  if [ -n "$n" ] && ! [[ "$n" =~ ^[A-Za-z0-9._/-]+$ ]]; then die "bad name: $n"; fi
+done
+TARGET="${NEWID:-$B}"
+if [ -n "$RUN" ]; then
+  here=$(python3 -c "import os;p=os.path.realpath('$PWD');w=os.path.realpath('$LANES')+'/';print(p[len(w):].split('/')[0] if p.startswith(w) else '')")
+  if [ -n "$here" ]; then
+    echo "A merge moves and removes worktrees, including the one you are standing in ($here)."
+    echo "Run it from the lane root instead:"
+    echo "  cd $AD && lane-merge $A $B ${NEWBR:+--new-branch $NEWBR }${NEWID:+--as $NEWID }--run"
+    exit 1
+  fi
+fi
+
+# ---- refuse on uncommitted work -------------------------------------------------------------------
+dirty=""
+for id in "$A" "$B"; do
+  while read -r repo branch; do d="$LANES/$id/$repo"; [ -d "$d" ] || continue
+    n=$(git -C "$d" status --porcelain | wc -l | tr -d ' ')
+    if [ "$n" != 0 ]; then dirty="$dirty  $id/$repo ($n files)\n"; fi
+  done < <(lane_repos "$id")
+done
+if [ -n "$dirty" ]; then printf "uncommitted work — commit it or lane-park first:\n%b" "$dirty"; exit 1; fi
+
+nested=$("$AD/scripts/lane-nested" 2>/dev/null || true)
+if [ -n "$nested" ]; then
+  printf "there are nested worktrees to sort out first:\n%s\n" "$nested"
+  echo "fix them with:  lane-nested --fix    (removes the inner one; branches are never deleted)"
+  exit 1
+fi
+
+branch_of(){ lane_repos "$1" | awk -v r="$2" '$1==r{print $2}'; }
+open_pr(){ local d="$1" br="$2"; [ -d "$d" ] || return 0; gh pr view "$br" --json number,state,url -q 'select(.state=="OPEN")|"#\(.number) \(.url)"' 2>/dev/null || true; }
+
+echo "MERGE  $A  +  $B  ->  $TARGET$([ -n "$NEWBR" ] && echo "   on new branch '$NEWBR'")$([ -z "$RUN" ] && echo '   (dry run — nothing will change)')"
+echo
+
+repos_union=$( { lane_repos "$A" | cut -d' ' -f1; lane_repos "$B" | cut -d' ' -f1; } | awk '!seen[$0]++')
+declare -a PLAN
+warn=""
+for repo in $repos_union; do
+  ba=$(branch_of "$A" "$repo"); bb=$(branch_of "$B" "$repo")
+  wa="$LANES/$A/$repo"; wb="$LANES/$B/$repo"
+  if [ -n "$ba" ] && [ -n "$bb" ] && [ "$ba" != "$bb" ]; then
+    d="$wb"; [ -d "$d" ] || d="$wa"
+    ahead="?"; if [ -d "$d" ]; then ahead=$(git -C "$d" rev-list --count "$bb..$ba" 2>/dev/null || echo "?"); fi
+    cfiles=""
+    if [ -d "$d" ]; then
+      out=$(git -C "$d" merge-tree --write-tree "$bb" "$ba" 2>/dev/null) || cfiles=$(printf '%s' "$out" | sed -n 's/^CONFLICT ([^)]*): Merge conflict in //p')
+    fi
+    if [ -n "$NEWBR" ]; then echo "  $repo: new branch $NEWBR from $bb, then merge $ba into it  ($ahead commit(s))${cfiles:+  CONFLICTS}"
+    else echo "  $repo: merge $ba into $bb  ($ahead commit(s))${cfiles:+  CONFLICTS}"; fi
+    if [ -n "$cfiles" ]; then printf '%s\n' "$cfiles" | sed 's/^/        conflict: /'; fi
+    PLAN+=("both|$repo|$ba|$bb")
+    for br in "$ba" "$bb"; do p=$(open_pr "$d" "$br"); if [ -n "$p" ]; then warn="$warn  $repo $br has an open PR $p\n"; fi; done
+  elif [ -n "$ba" ] && [ -n "$bb" ]; then
+    if [ -n "$NEWBR" ] && [ "$bb" != "$NEWBR" ]; then echo "  $repo: same branch ($bb) in both -> move onto new branch $NEWBR"
+    else echo "  $repo: same branch ($bb) in both -> nothing to do"; fi
+    PLAN+=("same|$repo|$bb|$bb")
+  elif [ -n "$ba" ]; then
+    echo "  $repo: only in $A -> worktree moves into $TARGET${NEWBR:+, onto new branch $NEWBR from $ba}"
+    PLAN+=("froma|$repo|$ba|")
+    p=$(open_pr "$wa" "$ba"); if [ -n "$p" ]; then warn="$warn  $repo $ba has an open PR $p\n"; fi
+  else
+    if [ -n "$NEWBR" ]; then echo "  $repo: only in $B -> onto new branch $NEWBR from $bb"
+    else echo "  $repo: only in $B -> unchanged"; fi
+    PLAN+=("fromb|$repo|$bb|")
+  fi
+done
+
+nrefs=$(grep -c '^  - path: ' "$fa" 2>/dev/null || true); nrefs=${nrefs:-0}
+echo
+if [ -n "$NEWBR" ]; then echo "  the original branches are left exactly as they are — no commits on top of them"; fi
+echo "  goal, resume note and findings: combined into $TARGET under dated headings"
+if [ "$nrefs" != 0 ]; then echo "  references: $nrefs from $A carried over"; fi
+if [ -n "$NEWID" ]; then echo "  $A and $B: both archived to registry/lanes/done/, pointing at $NEWID"
+else echo "  $A: archived to registry/lanes/done/, pointing at $B"; fi
+if [ -n "$warn" ]; then echo; printf "  heads up — these PRs will stop receiving new work:\n%b" "$warn"; fi
+
+if [ -z "$RUN" ]; then
+  echo; printf "run it with:  lane merge %s %s" "$A" "$B"
+  [ -n "$NEWBR" ] && printf " --new-branch %s" "$NEWBR"
+  [ -n "$NEWID" ] && printf " --as %s" "$NEWID"
+  printf " --run\n"; exit 0
+fi
+
+# ---- execute ---------------------------------------------------------------------------------------
+echo; echo "running…"
+DEST="$LANES/$TARGET"; mkdir -p "$DEST"
+for p in "${PLAN[@]}"; do
+  IFS='|' read -r kind repo ba bb <<<"$p"; bb="${bb:-}"
+  case "$kind" in
+    froma) src="$LANES/$A/$repo";;
+    *)     src="$LANES/$B/$repo"; [ -d "$src" ] || src="$LANES/$A/$repo";;
+  esac
+  # `git worktree move A B` moves A INTO B when B exists, which nests worktrees. Never let that happen.
+  if [ -e "$DEST/$repo" ]; then
+    [ "$src" != "$DEST/$repo" ] && echo "  $repo: already in $TARGET (left from an earlier run) — not moved again"
+  elif [ -d "$src" ]; then
+    git -C "$REPOS/$repo" worktree move "$src" "$DEST/$repo" && echo "  moved $repo worktree into $TARGET"
+  else
+    git -C "$REPOS/$repo" worktree add -q "$DEST/$repo" "${bb:-$ba}" && echo "  created $repo worktree in $TARGET"
+  fi
+  d="$DEST/$repo"; [ -d "$d" ] || continue
+  if [ -n "$NEWBR" ]; then
+    start="${bb:-$ba}"
+    if git -C "$d" show-ref --verify -q "refs/heads/$NEWBR"; then git -C "$d" checkout -q "$NEWBR"
+    else git -C "$d" checkout -q -b "$NEWBR" "$start" && echo "  $repo: branch $NEWBR created from $start"; fi
+  fi
+  if [ "$kind" = both ]; then
+    if [ -z "$NEWBR" ]; then git -C "$d" checkout -q "$bb"; fi
+    echo "  $repo: merging $ba into ${NEWBR:-$bb} ..."
+    if git -C "$d" merge --no-ff -m "Merge lane $A into $TARGET ($repo)" "$ba" >/dev/null; then echo "  $repo merged"
+    else
+      echo; echo "  CONFLICT in $repo. The merge is in progress in:"; echo "    $d"
+      echo "  Resolve it, commit, then run the same command again — it picks up where it stopped."
+      echo "  Worktrees already moved into $TARGET are left in place; nothing is moved twice."; exit 1
+    fi
+  fi
+done
+
+# ---- metadata ---------------------------------------------------------------------------------------
+python3 - "$fa" "$fb" "$A" "$B" "$TARGET" "$NEWBR" "$LANES_DIR" <<'PY'
+import sys, re, os, datetime
+fa, fb, A, B, TARGET, NEWBR, WSDIR = sys.argv[1:]
+d = datetime.date.today().isoformat()
+ta, tb = open(fa).read(), open(fb).read()
+def sect(t, name, *nxt):
+    for n in nxt:
+        m = re.search(rf"## {name}\n(.*?)(?=\n## {n}|\Z)", t, re.S)
+        if m and m.group(1).strip(): return m.group(1).strip()
+    return ""
+def clean(s):
+    s = s.strip()
+    return "" if (s.startswith("(") and s.endswith(")")) else s
+def put(t, name, nxt, extra, src):
+    extra = clean(extra)
+    if not extra: return t
+    block = f"\n\n_from {src}, merged {d}_\n{extra}\n"
+    m = re.search(rf"(## {name}\n)(.*?)(?=\n## {nxt}|\Z)", t, re.S)
+    if not m: return t.rstrip("\n") + f"\n\n## {name}\n{block.strip()}\n"
+    return t[:m.end(2)].rstrip("\n") + block + t[m.end(2):]
+new_ws = TARGET != B
+if new_ws:
+    out = re.sub(r"^id: .*$", f"id: {TARGET}", tb, flags=re.M)
+    out = re.sub(r"^status: .*$", "status: active", out, flags=re.M)
+    out = re.sub(r"## Goal\n.*?(?=\n## Resume note)", "## Goal\n", out, flags=re.S)
+    out = re.sub(r"## Resume note\n.*?(?=\n## )", "## Resume note\n", out, flags=re.S)
+    out = re.sub(r"## Findings\n.*?(?=\n## Log)", "## Findings\n", out, flags=re.S)
+    out = re.sub(r"## Log\n(?:.*\n)*", f"## Log\n- {d} created by merging {A} and {B}\n", out)
+    for src, t in ((B, tb), (A, ta)):
+        out = put(out, "Goal", "Resume note", sect(t, "Goal", "Resume note"), src)
+        out = put(out, "Resume note", "Findings", sect(t, "Resume note", "Findings", "Log"), src)
+        f = sect(t, "Findings", "Log")
+        if f: out = put(out, "Findings", "Log", f, src)
+else:
+    out = tb
+    out = put(out, "Goal", "Resume note", sect(ta, "Goal", "Resume note"), A)
+    out = put(out, "Resume note", "Findings", sect(ta, "Resume note", "Findings", "Log"), A)
+    f = sect(ta, "Findings", "Log")
+    if f: out = put(out, "Findings", "Log", f, A)
+    out = out.rstrip("\n") + f"\n- {d} merged lane {A} into this one\n"
+head, rest = out.split("\n---\n", 1)
+entries = {}
+for t in (tb, ta):
+    for m in re.finditer(r"^  - repo: (\S+)\n    branch: (\S+)\n(?:    base: (\S+)\n)?", t, re.M):
+        entries.setdefault(m.group(1), (m.group(2), m.group(3) or ""))
+lines = "".join(f"  - repo: {r}\n    branch: {NEWBR or br}\n" + (f"    base: {base}\n" if base else "")
+                for r, (br, base) in entries.items())
+head = re.sub(r"repos:\n(?:  - repo: .*\n(?:    .*\n)*)*", "repos:\n" + lines, head, count=1)
+refs, have = [], set()
+for t in (tb, ta):
+    for m in re.finditer(r"^  - path: (.+)\n((?:    .*\n)*)", t, re.M):
+        if m.group(1) not in have: have.add(m.group(1)); refs.append(m.group(0))
+head = re.sub(r"\nrefs:\n(?:  - path: .*\n(?:    .*\n)*)*", "\n", head)
+if refs: head = head.rstrip("\n") + "\nrefs:\n" + "".join(refs).rstrip("\n") + "\n"
+out = re.sub(r"^updated: .*$", f"updated: {d}", head, flags=re.M) + "\n---\n" + rest
+open(f"{WSDIR}/{TARGET}.md", "w").write(out)
+os.makedirs(f"{WSDIR}/done", exist_ok=True)
+for f, name in [(fa, A)] + ([(fb, B)] if new_ws else []):
+    t = re.sub(r"^status: .*$", "status: merged", open(f).read(), flags=re.M).rstrip("\n")
+    open(f"{WSDIR}/done/{os.path.basename(f)}", "w").write(t + f"\n- {d} merged into {TARGET} — continue there\n")
+    os.remove(f)
+print(f"  metadata combined into {TARGET}")
+PY
+
+for id in "$A" "$B"; do
+  [ "$id" = "$TARGET" ] && continue
+  if [ -d "$LANES/$id/refs" ]; then mkdir -p "$DEST/refs"; cp -a "$LANES/$id/refs/." "$DEST/refs/" 2>/dev/null || true; fi
+  for d in "$LANES/$id"/*/; do
+    [ -e "$d/.git" ] || continue
+    r=$(basename "$d"); git -C "$REPOS/$r" worktree remove --force "$d" 2>/dev/null && echo "  removed leftover worktree $id/$r"
+  done
+  [ -d "$LANES/$id" ] && rm -rf "$LANES/$id"
+done
+write_lane_claude "$TARGET" 2>/dev/null || true
+"$AD/scripts/lane-workspace" >/dev/null 2>&1
+refresh_guards
+echo
+echo "done — continue in $TARGET"
+echo "  lane-brief $TARGET"

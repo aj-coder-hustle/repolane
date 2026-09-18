@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# sessions <repo|lane-id> [n]  — list resumable Claude conversations for a repo (newest first)
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+key="${1:-}"; n="${2:-10}"; [ -n "$key" ] || die "usage: sessions <repo|lane-id> [n]"
+repo="$key"; [ -d "$REPOS/$repo" ] || repo=$(lane_repos "$key" 2>/dev/null | head -1 | cut -d' ' -f1)
+[ -n "$repo" ] && [ -d "$REPOS/$repo" ] || die "unknown repo/lane '$key'"
+proj="$HOME/.claude/projects/$(echo "$REPOS/$repo" | sed 's#[/_]#-#g')"
+python3 - "$proj" "$n" "$repo" <<'PY'
+import sys,os,json,glob,datetime
+proj,n,repo=sys.argv[1],int(sys.argv[2]),sys.argv[3]
+rows=[]
+for f in glob.glob(f"{proj}/*.jsonl"):
+    sid=os.path.basename(f)[:-6]; first=None; last=os.path.getmtime(f); turns=0
+    with open(f) as fh:
+        for l in fh:
+            try: d=json.loads(l)
+            except: continue
+            ts=d.get("timestamp")
+            if ts:
+                try: last=datetime.datetime.fromisoformat(ts.replace("Z","+00:00")).timestamp()
+                except Exception: pass
+            if d.get("type")=="user":
+                c=d.get("message",{}).get("content")
+                if isinstance(c,str) and not c.startswith("<"): turns+=1; first=first or c.strip().replace("\n"," ")[:90]
+    if first: rows.append((last,sid,turns,first))
+rows.sort(reverse=True)
+print(f"Resumable conversations for {repo} (launch claude inside its worktree, then `claude --resume <id>`):")
+for last,sid,turns,first in rows[:n]:
+    print(f"  {datetime.datetime.fromtimestamp(last):%Y-%m-%d %H:%M}  {sid}  {turns:>3} turns  {first}")
+if not rows: print("  none")
+PY

@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+# lane-memory — the only way memories and preferences get written. Scope is always decided by the owner.
+#
+#   lane-memory draft <slug>                 print the inbox path; Claude writes the draft there
+#   lane-memory show  <slug>                 show a pending draft
+#   lane-memory list                         pending drafts
+#   lane-memory file  <slug> repo <repo>     -> memory/<repo>/<slug>.md   + index line
+#   lane-memory file  <slug> cross           -> memory/<slug>.md          + index line
+#   lane-memory file  <slug> lane [<id>]     -> ## Findings of registry/lanes/<id>.md
+#   lane-memory file  <slug> pref            -> appended to knowledge/preferences.md
+#   lane-memory move  <name> repo <repo>|cross   re-scope an existing memory (reindexes both sides)
+#   lane-memory rm    <name> [repo <repo>]       delete a memory and its index line
+#   lane-memory drop  <slug>                 discard a draft
+#   lane-memory index [repo|cross]           rebuild MEMORY.md index lines from the files
+#   lane-memory audit                        memories whose scope looks wrong
+#
+# Scope is decided by how long the thing stays true:
+#   pref   how Claude should work with the owner, everywhere
+#   cross  true in every repo
+#   repo   true in one repo, still true after this ticket ships
+#   lane     only matters while this lane is live (archived with it)
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+INBOX="$AD/.cache/memory-inbox"; mkdir -p "$INBOX"
+cmd="${1:-list}"; slug="${2:-}"
+case "$cmd" in
+  draft)
+    [ -n "$slug" ] || die "usage: lane-memory draft <slug>"
+    echo "$INBOX/$slug.md"
+    [ -f "$INBOX/$slug.md" ] || cat > "$INBOX/$slug.md" <<EOT
+---
+name: $slug
+description: <one line — what this memory says>
+metadata:
+  type: project | feedback | user | reference
+---
+
+<the fact. For feedback/project add **Why:** and **How to apply:** lines.>
+EOT
+    ;;
+  show) [ -f "$INBOX/$slug.md" ] || die "no draft '$slug'"; cat "$INBOX/$slug.md";;
+  list)
+    n=0; for f in "$INBOX"/*.md; do [ -f "$f" ] || continue; n=$((n+1))
+      printf "  %-34s %s\n" "$(basename "$f" .md)" "$(grep -m1 '^description:' "$f" | cut -c14-110)"; done
+    [ "$n" = 0 ] && echo "  no pending drafts"
+    echo "  file one with: lane-memory file <slug> repo <repo> | cross | pref | lane [<id>]"
+    echo "  scope = how long it stays true: pref (always, any work) · cross (every repo) · repo (one repo, after this ticket) · lane (only while this work is live)";;
+  drop) rm -f "$INBOX/$slug.md" && echo "dropped $slug";;
+  file)
+    scope="${3:-}"; repo="${4:-}"; src="$INBOX/$slug.md"
+    [ -f "$src" ] || die "no draft '$slug' — create it with: lane-memory draft $slug"
+    case "$scope" in
+      repo) [ -d "$REPOS/$repo" ] || die "unknown repo '$repo'"; dst="$AD/memory/$repo/$slug.md"; idx="$AD/memory/$repo/MEMORY.md";;
+      cross) dst="$AD/memory/$slug.md"; idx="$AD/memory/MEMORY.md";;
+      lane) wsid="${repo:-$(python3 -c "import os;p=os.path.realpath('$PWD');w='$LANES/';print(p[len(w):].split('/')[0] if p.startswith(w) else '')")}"
+          [ -n "$wsid" ] && [ -f "$(lane_file "$wsid")" ] || die "usage: lane-memory file <slug> lane <lane-id>"
+          dst=""; idx="";;
+      pref) dst=""; idx="";;
+      *) die "usage: lane-memory file <slug> repo <repo> | cross | pref | lane [<id>]";;
+    esac
+    if [ "$scope" = lane ]; then
+      python3 - "$src" "$(lane_file "$wsid")" <<'PY'
+import sys,re,datetime
+src,dst=sys.argv[1:]; t=open(src).read()
+body=t.split("---",2)[2].strip() if t.startswith("---") else t.strip()
+desc=(re.search(r"^description: *(.+)$",t,re.M) or [None,""])[1].strip().strip('"')
+entry=f"- {datetime.date.today()} — {desc}\n" + ("\n".join("  "+l for l in body.splitlines() if l.strip())+"\n" if body else "")
+d=open(dst).read()
+if "\n## Findings" in d:
+    d=re.sub(r"(## Findings\n(?:.*?\n)??)(?=\n## |\Z)", lambda m: m.group(1).rstrip("\n")+"\n"+entry, d, count=1, flags=re.S)
+else:
+    d=d.replace("\n## Log", "\n## Findings\n"+entry+"\n## Log",1) if "\n## Log" in d else d.rstrip("\n")+"\n\n## Findings\n"+entry
+open(dst,"w").write(d); print("added to ## Findings of",dst.split("/")[-1])
+PY
+      rm -f "$src"; exit 0
+    fi
+    if [ "$scope" = pref ]; then
+      python3 - "$src" "$AD/knowledge/preferences.md" <<'PY'
+import sys,re
+src,dst=sys.argv[1:]; t=open(src).read()
+body=t.split("---",2)[2].strip() if t.startswith("---") else t.strip()
+d=re.search(r"^description: *(.+)$",t,re.M)
+open(dst,"a").write(f"\n- {d.group(1).strip() if d else ''}\n" + ("\n".join("  "+l for l in body.splitlines() if l.strip()) + "\n" if body else ""))
+print("appended to knowledge/preferences.md")
+PY
+      rm -f "$src"; exit 0
+    fi
+    mkdir -p "$(dirname "$dst")"; mv "$src" "$dst"
+    python3 - "$dst" "$idx" <<'PY'
+import sys,os,re
+dst,idx=sys.argv[1:]; t=open(dst).read()
+name=(re.search(r"^name: *(.+)$",t,re.M) or [None,os.path.basename(dst)[:-3]])[1].strip()
+desc=(re.search(r"^description: *(.+)$",t,re.M) or [None,""])[1].strip().strip('"')
+title=name.replace("-"," ").replace("_"," ").strip().capitalize()
+line=f"- [{title}]({os.path.basename(dst)}) — {desc}"
+if not os.path.exists(idx): open(idx,"w").write(f"# Memory Index — {os.path.basename(os.path.dirname(idx))}\n")
+cur=open(idx).read()
+cur=re.sub(r"^- \[[^\]]*\]\("+re.escape(os.path.basename(dst))+r"\).*$","",cur,flags=re.M)
+open(idx,"w").write(cur.rstrip("\n")+"\n"+line+"\n")
+print("filed:",os.path.relpath(dst,os.path.dirname(os.path.dirname(idx)) if False else os.path.dirname(os.path.dirname(idx))),"\nindexed in:",idx)
+PY
+    ;;
+  move|rm)
+    name="${2:-}"; [ -n "$name" ] || die "usage: lane-memory move <name> repo <repo>|cross   /   lane-memory rm <name> [repo <repo>]"
+    python3 - "$AD" "$cmd" "$name" "${3:-}" "${4:-}" <<'PY'
+import sys,os,re,glob
+ad,cmd,name,scope,repo=sys.argv[1:]
+name=name[:-3] if name.endswith(".md") else name
+hits=[f for f in glob.glob(f"{ad}/memory/**/{name}.md",recursive=True)]
+if scope=="repo" and repo: hits=[f for f in hits if os.path.basename(os.path.dirname(f))==repo] or hits
+if not hits: sys.exit(f"no memory named '{name}'")
+if len(hits)>1 and cmd=="rm": sys.exit("more than one match: "+", ".join(os.path.relpath(h,ad) for h in hits)+" — name the scope")
+src=hits[0]
+def deindex(f):
+    idx=os.path.join(os.path.dirname(f),"MEMORY.md")
+    if os.path.exists(idx):
+        cur=open(idx).read()
+        open(idx,"w").write(re.sub(r"^- \[[^\]]*\]\("+re.escape(os.path.basename(f))+r"\).*" + chr(10) + "?","",cur,flags=re.M))
+def index(f):
+    idx=os.path.join(os.path.dirname(f),"MEMORY.md"); t=open(f).read()
+    nm=(re.search(r"^name: *(.+)$",t,re.M) or [None,os.path.basename(f)[:-3]])[1].strip()
+    de=(re.search(r"^description: *(.+)$",t,re.M) or [None,""])[1].strip().strip('"')
+    line=f"- [{nm.replace('-',' ').replace('_',' ').capitalize()}]({os.path.basename(f)}) — {de}"
+    if not os.path.exists(idx): open(idx,"w").write(f"# Memory Index — {os.path.basename(os.path.dirname(idx))}"+chr(10))
+    cur=re.sub(r"^- \[[^\]]*\]\("+re.escape(os.path.basename(f))+r"\).*" + chr(10) + "?","",open(idx).read(),flags=re.M)
+    open(idx,"w").write(cur.rstrip(chr(10))+chr(10)+line+chr(10))
+if cmd=="rm":
+    deindex(src); os.remove(src); print("deleted",os.path.relpath(src,ad))
+else:
+    if scope=="cross": dst=f"{ad}/memory/{os.path.basename(src)}"
+    elif scope=="repo" and repo: os.makedirs(f"{ad}/memory/{repo}",exist_ok=True); dst=f"{ad}/memory/{repo}/{os.path.basename(src)}"
+    else: sys.exit("usage: lane-memory move <name> repo <repo> | cross")
+    if os.path.realpath(dst)==os.path.realpath(src): sys.exit("already there")
+    if os.path.exists(dst): sys.exit(f"a memory with that name already exists at {os.path.relpath(dst,ad)} — rename one first")
+    deindex(src); os.rename(src,dst); index(dst)
+    print("moved",os.path.relpath(src,ad),"->",os.path.relpath(dst,ad))
+PY
+    ;;
+  index)
+    python3 - "$AD" "${2:-all}" <<'PY'
+import sys,os,re,glob
+ad,scope=sys.argv[1:]
+def rebuild(folder,label):
+    files=sorted(f for f in glob.glob(f"{folder}/*.md") if os.path.basename(f)!="MEMORY.md")
+    lines=[]
+    for f in files:
+        t=open(f).read()
+        name=(re.search(r"^name: *(.+)$",t,re.M) or [None,os.path.basename(f)[:-3]])[1].strip()
+        desc=(re.search(r"^description: *(.+)$",t,re.M) or [None,""])[1].strip().strip('"')
+        lines.append(f"- [{name.replace('-',' ').replace('_',' ').capitalize()}]({os.path.basename(f)}) — {desc}")
+    head=f"# Memory Index — {label}"
+    old=open(f"{folder}/MEMORY.md").read() if os.path.exists(f"{folder}/MEMORY.md") else ""
+    note=[l for l in old.splitlines() if l.startswith(">")]
+    open(f"{folder}/MEMORY.md","w").write("\n".join([head]+note+[""]+lines)+"\n")
+    print(f"  {label}: {len(lines)} entries")
+if scope in ("all","cross"): rebuild(f"{ad}/memory","cross-repo (repo memories live in the subfolders)")
+if scope in ("all","repo"):
+    for d in sorted(os.listdir(f"{ad}/memory")):
+        if os.path.isdir(f"{ad}/memory/{d}"): rebuild(f"{ad}/memory/{d}",d)
+PY
+    ;;
+  audit)
+    python3 - "$AD" "$OWNER" <<'PY'
+import sys
+owner=sys.argv[2] if len(sys.argv)>2 else "the user"
+import sys,os,re,glob
+ad=sys.argv[1]
+CROSS=re.compile(r"\b(always|never|every repo|all repos|any repo|in every|house style|preference|I prefer|standing)\b",re.I)
+print("memories in a repo folder that read like they apply everywhere:")
+n=0
+for f in sorted(glob.glob(f"{ad}/memory/*/*.md")):
+    if os.path.basename(f)=="MEMORY.md": continue
+    t=open(f).read(); ty=(re.search(r"type: *(\w+)",t) or [None,""])[1]
+    d=(re.search(r"^description: *(.+)$",t,re.M) or [None,""])[1].strip().strip('"')
+    if ty in ("feedback","user") and CROSS.search(d+t[:600]):
+        print(f"  {os.path.relpath(f,ad)}\n      {d[:110]}"); n+=1
+print(f"  ({n} to review — move one with: lane-memory audit is read-only; decide with {owner}, then move the file and run lane-memory index)")
+dups={}
+for f in glob.glob(f"{ad}/memory/**/*.md",recursive=True):
+    if os.path.basename(f)=="MEMORY.md": continue
+    dups.setdefault(os.path.basename(f),[]).append(os.path.relpath(f,ad))
+d2={k:v for k,v in dups.items() if len(v)>1}
+if d2:
+    print("\nsame filename in more than one place:")
+    for k,v in d2.items(): print(f"  {k}: {', '.join(v)}")
+PY
+    ;;
+  *) die "unknown: $cmd (draft|show|list|file|drop|index|audit)";;
+esac

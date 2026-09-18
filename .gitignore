@@ -1,0 +1,8 @@
+# nested checkouts and worktrees are tracked by registry/, not by git
+/repos/
+/lanes/
+/.cache/
+.DS_Store
+*.local.json
+__pycache__/
+/lane.code-workspace

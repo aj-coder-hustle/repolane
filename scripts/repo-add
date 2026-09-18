@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# repo-add <git-url|path-to-existing-checkout> [name] [--local <path-you-already-have>]
+# Brings a repo under management at any time: clone (or copy an existing checkout's .git), register in
+# registry/repos.yaml, create memory/<name>, and point the repo's Claude project memory at it.
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+url="${1:-}"; [ -n "$url" ] || die "usage: repo-add <git-url|path-to-existing-checkout> [name]"
+name="${2:-}"; [ "${name#--}" != "$name" ] && name=""
+from=""; for ((i=1;i<=$#;i++)); do [ "${!i}" = "--from" ] && j=$((i+1)) && from="${!j}"; done
+given_local=""; for ((i=1;i<=$#;i++)); do [ "${!i}" = "--local" ] && j=$((i+1)) && given_local="${!j}"; done
+
+# A local checkout works as the first argument. We take its origin as the remote and copy its git
+# database rather than cloning again — and we remember where it came from, which is what lets
+# `lane import` recognise the conversations you already had about it.
+if [ -z "$from" ] && [ -d "$url" ] && { [ -d "$url/.git" ] || [ -f "$url/.git" ]; }; then
+  from="$(cd "$url" && pwd)"
+  origin="$(git -C "$from" remote get-url origin 2>/dev/null || true)"
+  [ -n "$origin" ] || die "$from has no origin remote — pass the git url instead"
+  url="$origin"
+  echo "using the checkout at $from (origin: $url)"
+fi
+[ -n "$name" ] || name=$(basename "$url" .git)
+local_path="${from:-$given_local}"
+# Added from a url? Then ask, once, whether a checkout of it already exists on this machine.
+# Answering is optional; it is how past conversations about the repo get recognised later.
+if [ -z "$local_path" ] && [ -t 0 ] && [ -t 2 ]; then
+  printf "  do you already have this cloned somewhere? path (blank to skip): " >&2
+  read -r ans || true
+  ans="${ans%$'\r'}"; ans="${ans/#\~/$HOME}"
+  if [ -n "$ans" ]; then
+    if [ -d "$ans/.git" ] || [ -f "$ans/.git" ]; then local_path="$(cd "$ans" && pwd)"
+    else echo "  not a git checkout, ignoring: $ans" >&2; fi
+  fi
+fi
+
+dst="$REPOS/$name"; [ -e "$dst" ] && die "$dst already exists"
+if [ -n "$from" ]; then
+  "$AD/scripts/copy-repo.sh" "$from" "$dst" || die "could not copy the checkout at $from"
+else
+  git clone -q "$url" "$dst" || { rm -rf "$dst"; die "could not clone $url"; }
+  echo "cloned $url -> $dst"
+fi
+def=$(repo_default "$name")
+python3 - "$AD/registry/repos.yaml" "$name" "$url" "$def" "$local_path" <<'PY'
+import sys; p,name,url,default,frm=sys.argv[1:]
+t=open(p).read()
+if f"\n  {name}:\n" in t: sys.exit(0)
+entry=f"""  {name}:
+    path: repos/{name}
+    origin: {url}
+    default_branch: {default}
+    stack: []
+    product: (fill in)
+    status: active
+    added: {__import__('datetime').date.today()}
+""" + (f"    old_paths:\n      - {frm}\n" if frm else "")
+open(p,"w").write(t.rstrip("\n")+"\n"+entry)
+PY
+mkdir -p "$AD/memory/$name"; [ -f "$AD/memory/$name/MEMORY.md" ] || printf '# Memory Index — %s\n' "$name" > "$AD/memory/$name/MEMORY.md"
+slug=$(echo "$dst" | sed 's#[/_]#-#g'); proj="$HOME/.claude/projects/$slug"; mkdir -p "$proj"
+if [ -d "$proj/memory" ] && [ ! -L "$proj/memory" ]; then cp -an "$proj/memory/." "$AD/memory/$name/" && rm -rf "$proj/memory"; fi
+[ -L "$proj/memory" ] || ln -s "$AD/memory/$name" "$proj/memory"
+echo "registered $name (default $def); memory -> memory/$name. Edit registry/repos.yaml: stack/product."
+
+# Past conversations live under the folder they ran in. If we know that folder, say what is there.
+if [ -n "$local_path" ]; then
+  oldslug=$(printf '%s' "$local_path" | sed 's#[/_]#-#g')
+  olddir="${CLAUDE_HOME:-$HOME/.claude}/projects/$oldslug"
+  n=0; [ -d "$olddir" ] && n=$(ls "$olddir"/*.jsonl 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$n" != 0 ]; then
+    echo
+    echo "  $n past conversation(s) about $name were found at $local_path"
+    if [ -t 0 ] && [ -t 2 ]; then
+      printf "  look at them now and turn them into a lane? [y/N]: " >&2
+      read -r yn || true
+      case "${yn:-n}" in [yY]*) exec "$AD/scripts/lane-import" ;; esac
+    fi
+    echo "  see them any time:  lane import --list"
+  fi
+fi

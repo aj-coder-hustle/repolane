@@ -1,0 +1,11 @@
+# Who this control plane belongs to, and how it should talk to them.
+# `lane init` writes this for you. It is the only file that needs editing to adopt the system.
+owner:
+  # Named in hook messages and agent prompts: "ask <name> first", "work <name> asked for".
+  name: YOUR NAME
+
+tracker:
+  # Where a ticket key links to. {key} is replaced with the key found in a lane's
+  # `ticket:` field, or at the front of its id (ABC-123-short-name -> ABC-123).
+  # Blank means keys show as plain text instead of links.
+  url:

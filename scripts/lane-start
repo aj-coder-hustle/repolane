@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# lane-start <id> [--base <ref>] <repo>[:<branch>][@<base>] ...
+# Creates lanes/<id>/<repo> worktrees, the lane file, a folder CLAUDE.md and permission guards.
+# Branch defaults to <id>. Base defaults to the repo's default branch; override per repo with @<base>
+# or for the whole call with --base <ref>. A base may be a remote branch, a local branch or a tag.
+# If the branch already exists it is checked out as is (base ignored). Existing lane: adds repos.
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+id="${1:-}"; shift || true
+gbase=""; if [ "${1:-}" = "--base" ]; then gbase="${2:-}"; shift 2; fi
+[ -n "$id" ] && [ $# -ge 1 ] || die "usage: lane-start <id> [--base <ref>] <repo>[:<branch>][@<base>] ..."
+# resolve_base <repo> <base> -> a ref that exists (origin/<base>, <base>, or a tag), after fetching
+resolve_base(){ local repo="$1" b="$2"
+  git -C "$REPOS/$repo" fetch -q origin 2>/dev/null || true
+  for cand in "origin/$b" "$b" "refs/tags/$b"; do
+    git -C "$REPOS/$repo" rev-parse -q --verify "$cand^{commit}" >/dev/null 2>&1 && { echo "$cand"; return 0; }
+  done
+  echo "base '$b' not found in $repo. Closest branches:" >&2
+  git -C "$REPOS/$repo" branch -a --list "*${b}*" 2>/dev/null | head -8 | sed 's/^/   /' >&2
+  return 1
+}
+[[ "$id" =~ ^[A-Za-z0-9._-]+$ ]] || die "id must be [A-Za-z0-9._-]"
+# An id is also a branch name and a folder name. Rejecting these here means a failure later cannot
+# leave a half-made lane behind: nothing is created until every check below has passed.
+case "$id" in
+  -*)      die "id cannot start with a dash — git and the shell both read it as an option" ;;
+  .|..|*/*) die "id cannot be '.', '..' or contain a slash" ;;
+esac
+git check-ref-format --branch "$id" >/dev/null 2>&1 || die "id is not usable as a branch name: $id"
+[ -e "$LANES/$id" ] && die "lane '$id' already has a folder — use lane resume $id, or pick another id"
+[ -f "$(lane_file "$id")" ] && die "lane '$id' already exists — use lane resume $id"
+# every named repo must be known before we touch the disk
+for spec in "$@"; do
+  r="${spec%%:*}"; r="${r%%@*}"
+  repo_exists "$r" || die "unknown repo '$r' (see registry/repos.yaml)"
+done
+
+f=$(lane_file "$id"); mkdir -p "$LANES/$id"
+# if anything below fails, take the empty shell back out rather than leaving it half-made
+cleanup_partial(){ rc=$?; if [ $rc != 0 ] && [ -z "$(ls -A "$LANES/$id" 2>/dev/null | grep -v '^CLAUDE.md$')" ]; then
+    rm -rf "$LANES/$id"; [ -f "$f" ] && rm -f "$f"; echo "nothing was created" >&2; fi; exit $rc; }
+trap cleanup_partial EXIT
+if [ ! -f "$f" ]; then cat > "$f" <<EOT
+---
+id: $id
+status: active
+ticket:
+created: $(date +%F)
+updated: $(date +%F)
+repos:
+---
+
+## Goal
+(one paragraph: what done looks like)
+
+## Resume note
+(written by lane-park: where things stand, next step, blockers)
+
+## Findings
+(things learned that matter only while this work is live; archived with it.
+ Anything that stays true afterwards belongs in memory/<repo>/ instead — lane-memory file <slug> repo <repo>)
+
+## Log
+- $(date +%F) started
+EOT
+fi
+for spec in "$@"; do
+  base=""; case "$spec" in *@*) base="${spec##*@}"; spec="${spec%@*}";; esac
+  repo="${spec%%:*}"; branch="${spec#*:}"; [ "$branch" = "$spec" ] && branch="$id"
+  repo_exists "$repo"; def=$(repo_default "$repo"); dst="$LANES/$id/$repo"
+  [ -n "$base" ] || base="${gbase:-$def}"
+  [ -e "$dst" ] && { echo "exists: $dst"; continue; }
+  if git -C "$REPOS/$repo" show-ref --verify -q "refs/heads/$branch"; then
+    git -C "$REPOS/$repo" fetch -q origin 2>/dev/null || true
+    git -C "$REPOS/$repo" worktree add -q "$dst" "$branch"; echo "worktree $dst on existing branch $branch"
+    base=$(git -C "$REPOS/$repo" rev-parse --abbrev-ref "$branch@{u}" 2>/dev/null || echo "$def")
+  else
+    ref=$(resolve_base "$repo" "$base") || die "cannot start $repo: no such base"
+    git -C "$REPOS/$repo" worktree add -q -b "$branch" "$dst" "$ref"; echo "worktree $dst on new branch $branch (from $ref)"
+  fi
+  link_env "$repo" "$dst"
+  # register in frontmatter (append under repos:)
+  python3 - "$f" "$repo" "$branch" "$base" <<'PY'
+import sys,re
+f,repo,branch,base=sys.argv[1:]; t=open(f).read()
+if f"  - repo: {repo}\n" not in t:
+    t=t.replace("repos:\n",f"repos:\n  - repo: {repo}\n    branch: {branch}\n    base: {base}\n",1)
+    open(f,"w").write(t)
+PY
+done
+lane_anchor "$id"
+write_lane_claude "$id"
+refresh_guards
+"$AD/scripts/lane-workspace" >/dev/null
+echo; echo "next: cd $LANES/$id && claude"

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# lane-done <id> [--delete-branches]: requires clean, pushed worktrees. Removes worktrees, archives the file.
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+id="${1:-}"; f=$(lane_file "$id"); [ -f "$f" ] || die "no lane '$id'"
+# Check EVERY repo before touching ANY of them. Checking and removing in the same pass meant a
+# lane whose second repo had unpushed work lost the first repo's worktree before failing.
+problems=""
+while read -r repo branch; do d="$LANES/$id/$repo"
+  if [ ! -d "$d" ]; then
+    # The folder is gone, so we cannot check whether its branch was pushed. Skipping it is how a
+    # lane got archived with unpushed commits still on a branch nobody could see.
+    if git -C "$REPOS/$repo" rev-parse -q --verify "refs/heads/$branch" >/dev/null 2>&1; then
+      up="refs/remotes/origin/$branch"
+      if ! git -C "$REPOS/$repo" rev-parse -q --verify "$up" >/dev/null 2>&1 \
+         || [ -n "$(git -C "$REPOS/$repo" log --oneline "$up..refs/heads/$branch" 2>/dev/null)" ]; then
+        problems="$problems\n  $repo/$branch: the worktree is missing and the branch is not fully pushed — lane resume $id first"
+      fi
+    fi
+    continue
+  fi
+  [ -z "$(git -C "$d" status --porcelain)" ] || problems="$problems\n  $repo is dirty — commit it, or lane park first"
+  if ! git -C "$d" rev-parse -q --verify '@{u}' >/dev/null 2>&1; then
+    problems="$problems\n  $repo/$branch was never pushed — push it, or delete the branch first"
+  elif [ -n "$(git -C "$d" log --oneline '@{u}..HEAD')" ]; then
+    n=$(git -C "$d" rev-list --count '@{u}..HEAD')
+    problems="$problems\n  $repo/$branch has $n unpushed commit(s)"
+  fi
+done < <(lane_repos "$id")
+if [ -n "$problems" ]; then
+  printf 'not finishing %s — nothing was removed:%b\n' "$id" "$problems" >&2
+  exit 1
+fi
+
+# everything checked out; now it is safe to remove
+while read -r repo branch; do d="$LANES/$id/$repo"; [ -d "$d" ] || continue
+  git -C "$REPOS/$repo" worktree remove "$d" && echo "removed worktree $d"
+  [ "${2:-}" = "--delete-branches" ] && git -C "$REPOS/$repo" branch -D "$branch" && echo "deleted branch $branch"
+done < <(lane_repos "$id")
+rmdir "$LANES/$id" 2>/dev/null || rm -rf "$LANES/$id"
+if sed -n '/^## Findings/,/^## Log/p' "$f" | grep -q '^- '; then
+  echo; echo "This lane has findings that will be archived with it:"
+  sed -n '/^## Findings/,/^## Log/p' "$f" | grep '^- ' | sed 's/^/   /'
+  echo "   Anything still true after this ships belongs in repo memory — lane-memory draft <slug> then lane-memory file <slug> repo <repo>."
+fi
+lane_set_status "$id" done; mkdir -p "$LANES_DIR/done"; mv "$f" "$LANES_DIR/done/"; "$AD/scripts/lane-workspace" >/dev/null
+refresh_guards; echo "done: $id -> registry/lanes/done/"

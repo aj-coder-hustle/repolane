@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# status-all: one board — repos, lanes, drift.
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+"$AD/scripts/hooks/guard-check" || echo "   (fix guard.py before trusting any of the state below)"
+echo "== repos (primary mirrors)"
+for r in "$REPOS"/*/; do n=$(basename "$r"); def=$(repo_default "$n")
+  git -C "$r" fetch -q origin 2>/dev/null || true
+  b=$(git -C "$r" rev-list --count "$def..origin/$def" 2>/dev/null || echo ?)
+  dirty=$(git -C "$r" status --porcelain | wc -l | tr -d ' '); cur=$(git -C "$r" branch --show-current)
+  flag=""; [ "$cur" != "$def" ] && flag=" !! not on $def"; [ "$dirty" != 0 ] && flag="$flag !! dirty (mirror must stay clean)"
+  echo "  $n: $cur, behind origin by $b, worktrees=$(( $(git -C "$r" worktree list | wc -l) - 1 ))$flag"
+  git -C "$r" worktree list --porcelain | sed -n 's/^worktree //p' | tail -n +2 | { grep -v "^$LANES/" || true; } | sed 's/^/     !! worktree outside lanes\/: /'
+done
+nested=$("$AD/scripts/lane-nested" 2>/dev/null || true)
+if [ -n "$nested" ]; then echo "  !! nested worktrees (a worktree inside another) — fix with: lane-nested --fix"; printf '%s\n' "$nested"; fi
+big=$(find "$LANES" -name settings.local.json -size +20k 2>/dev/null | sed "s|$AD/||" || true)
+if [ -n "$big" ]; then echo "  !! oversized guard files (rules are repeating) — fix with: lane-resume <id>"; printf '%s\n' "$big" | sed 's/^/     /'; fi
+echo "== lanes"
+for f in "$LANES_DIR"/*.md; do [ -f "$f" ] || continue; id=$(basename "$f" .md)
+  echo "  $id [$(lane_get "$id" status)] updated $(lane_get "$id" updated) ticket=$(lane_get "$id" ticket)"
+  while read -r repo branch; do d="$LANES/$id/$repo"
+    if [ -d "$d" ]; then echo "     $repo/$branch: $(git -C "$d" status --porcelain | wc -l | tr -d ' ') dirty, $(git -C "$d" log --oneline '@{u}..HEAD' 2>/dev/null | wc -l | tr -d ' ') unpushed"; else echo "     $repo/$branch: no worktree (lane-resume recreates)"; fi
+  done < <(lane_repos "$id")
+done
+echo "== drift: checkouts outside the control plane (should be none; work happens here)"
+[ -f "$AD/registry/old-checkouts.json" ] || exit 0
+python3 - "$AD/registry/old-checkouts.json" <<'PY'
+import json,subprocess,sys
+for p,h in json.load(open(sys.argv[1])).items():
+    try: cur=subprocess.check_output(["git","-C",p,"rev-parse","HEAD"],text=True,stderr=subprocess.DEVNULL).strip()
+    except Exception: print(f"  {p}: gone"); continue
+    dirty=subprocess.check_output(["git","-C",p,"status","--porcelain"],text=True).count("\n")
+    if cur!=h["head"] or dirty!=h["dirty"]: print(f"  !! {p}: HEAD or dirty state changed since it was recorded")
+PY

@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# lane-ref <id> add <path> ["note"] [--rw]   attach a folder/file outside the repos as a reference (read-only by default)
+# lane-ref <id> rm <path|name>               detach it (the target is never touched)
+# lane-ref <id> list                          show refs
+# Refs live in the lane frontmatter (refs:), appear as symlinks under lanes/<id>/refs/<name>, and are
+# granted read access by the guard + additionalDirectories. --rw allows edits there too.
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+id="${1:-}"; cmd="${2:-list}"; f=$(lane_file "$id"); [ -f "$f" ] || die "no lane '$id'"
+case "$cmd" in
+  add)
+    src="${3:-}"; [ -n "$src" ] || die "usage: lane-ref <id> add <path> [note] [--rw]"
+    src=$(python3 -c 'import os,sys;print(os.path.realpath(os.path.expanduser(sys.argv[1])))' "$src")
+    [ -e "$src" ] || die "no such path: $src"
+    case "$src" in "$LANES"/*|"$REPOS"/*) die "that is already part of the control plane; use lane-add for repos";; esac
+    mode=read; note=""; shift 3
+    for a in "$@"; do [ "$a" = "--rw" ] && mode=rw || note="$a"; done
+    name=$(basename "$src"); mkdir -p "$LANES/$id/refs"
+    [ -e "$LANES/$id/refs/$name" ] && [ "$(readlink "$LANES/$id/refs/$name")" != "$src" ] && name="$name-$(printf '%s' "$src" | md5 | cut -c1-6)"
+    ln -sfn "$src" "$LANES/$id/refs/$name"
+    python3 - "$f" "$src" "$note" "$mode" "$name" <<'PY'
+import sys,re
+f,src,note,mode,name=sys.argv[1:]; t=open(f).read()
+head,rest=t.split("\n---\n",1) if t.startswith("---") else ("",t)
+if "\nrefs:" not in head: head=head.rstrip("\n")+"\nrefs:"
+lines=[l for l in head.split("\n")]
+# drop an existing entry for the same path
+out=[];skip=0
+for l in lines:
+    if skip:
+        if l.startswith("    "): continue
+        skip=0
+    if l==f"  - path: {src}": skip=1; continue
+    out.append(l)
+head="\n".join(out)
+entry=f"  - path: {src}\n    name: {name}\n    mode: {mode}"+(f"\n    note: {note}" if note else "")
+head=head.replace("\nrefs:", "\nrefs:\n"+entry,1)
+open(f,"w").write(head+"\n---\n"+rest)
+PY
+    echo "ref added: $LANES/$id/refs/$name -> $src ($mode)${note:+ — $note}";;
+  rm)
+    key="${3:-}"; [ -n "$key" ] || die "usage: lane-ref <id> rm <path|name>"
+    python3 - "$f" "$key" "$LANES/$id/refs" <<'PY'
+import sys,os,re
+f,key,refs=sys.argv[1:]; t=open(f).read(); head,rest=t.split("\n---\n",1)
+lines=head.split("\n"); out=[]; i=0; removed=None
+while i<len(lines):
+    l=lines[i]
+    if l.startswith("  - path: "):
+        block=[l]; j=i+1
+        while j<len(lines) and lines[j].startswith("    "): block.append(lines[j]); j+=1
+        path=l[len("  - path: "):]; name=next((b.split(": ",1)[1] for b in block if b.strip().startswith("name: ")),os.path.basename(path))
+        if key in (path,name,os.path.realpath(os.path.expanduser(key))): removed=name; i=j; continue
+        out.extend(block); i=j; continue
+    out.append(l); i+=1
+if not removed: print("no such ref:",key); sys.exit(1)
+head="\n".join(out)
+if re.search(r"\nrefs:\n(?!  - )",head+"\n"): head=head.replace("\nrefs:","")
+open(f,"w").write(head+"\n---\n"+rest)
+link=f"{refs}/{removed}"
+if os.path.islink(link): os.unlink(link)
+print("ref removed:",removed)
+PY
+    ;;
+  list|*)
+    python3 - "$f" <<'PY'
+import sys,re
+t=open(sys.argv[1]).read(); head=t.split("\n---\n",1)[0]
+blocks=re.findall(r"  - path: (.+)\n((?:    .*\n?)*)",head)
+if not blocks: print("no refs"); sys.exit(0)
+for path,body in blocks:
+    d=dict(re.findall(r"    (\w+): (.*)",body))
+    print(f"  {d.get('name','?'):28} {d.get('mode','read'):4}  {path}{'  — '+d['note'] if d.get('note') else ''}")
+PY
+    ;;
+esac
+"$AD/scripts/lib.sh" >/dev/null 2>&1 || true
+bash -c "source '$AD/scripts/lib.sh' && refresh_guards"

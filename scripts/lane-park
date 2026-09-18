@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# lane-park <id> "<resume note>": wip-commit any dirty worktree on its branch, record the note, status=parked.
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+id="${1:-}"; note="${2:-}"; f=$(lane_file "$id"); [ -f "$f" ] || die "no lane '$id'"
+# The note is what you read in a week. The board already insists on a real one; so does this.
+[ "${#note}" -ge 10 ] || die "the resume note needs at least 10 characters — where things stand, next step, blockers"
+[ -n "$note" ] || die "a resume note is required"
+while read -r repo branch; do d="$LANES/$id/$repo"; [ -d "$d" ] || continue
+  if [ -n "$(git -C "$d" status --porcelain)" ]; then git -C "$d" add -A && git -C "$d" commit -q -m "wip: park $id $(date +%F)" && echo "wip commit in $repo"; fi
+done < <(lane_repos "$id")
+python3 - "$f" "$note" <<'PY'
+import sys,re,datetime
+f,note=sys.argv[1:]; t=open(f).read(); d=datetime.date.today().isoformat()
+t=re.sub(r"## Resume note\n.*?(?=\n## Log)",f"## Resume note\n_{d}_: {note}\n",t,flags=re.S)
+t=t.rstrip()+f"\n- {d} parked: {note}\n"; open(f,"w").write(t)
+PY
+"$AD/scripts/lane-workspace" >/dev/null
+lane_set_status "$id" parked; echo "parked $id"

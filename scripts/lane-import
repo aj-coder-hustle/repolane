@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+# lane-import — bring past Claude conversations into this control plane.
+#
+# Entirely optional. Nothing else needs it, and skipping it costs you nothing except
+# the ability to `claude --resume` an old conversation from inside a lane.
+#
+#   lane import                     look at what is on this machine, pick what to bring in
+#   lane import --list              just show what was found, change nothing
+#   lane import --into <id> <n>…    non-interactive: bring conversations n… into lane <id>
+#
+# Conversations are stored per folder. Bringing one in copies it to the lane's folder so
+# `claude --resume <id>` works from there. The original is left exactly where it was.
+set -u
+
+_self="${BASH_SOURCE[0]:-$0}"
+while [ -L "$_self" ]; do
+  _l=$(readlink "$_self")
+  case "$_l" in /*) _self="$_l" ;; *) _self="$(dirname "$_self")/$_l" ;; esac
+done
+AD="$(cd "$(dirname "$_self")/.." && pwd)"
+source "$AD/scripts/lib.sh"
+CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
+
+LIST_ONLY=0; INTO=""; PICKS=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --list) LIST_ONLY=1; shift ;;
+    --into) INTO="${2:-}"; shift 2 ;;
+    --claude-home) CLAUDE_HOME="${2:-}"; shift 2 ;;
+    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) PICKS="$PICKS $1"; shift ;;
+  esac
+done
+
+PROJ="$CLAUDE_HOME/projects"
+[ -d "$PROJ" ] || { echo "No Claude conversations on this machine yet ($PROJ)."; exit 0; }
+
+# ---------------------------------------------------------------------------
+# 1. Scan. For each transcript: which folder it belonged to, when, how long, and
+#    the first thing the person actually asked — that last one is what makes the
+#    list readable instead of a wall of identifiers.
+# ---------------------------------------------------------------------------
+SCAN=$(mktemp "${TMPDIR:-/tmp}/lane-import.XXXXXX")
+trap 'rm -f "$SCAN"' EXIT
+python3 - "$PROJ" "$AD" > "$SCAN" <<'PY'
+import json, os, sys, time
+proj, ad = sys.argv[1], sys.argv[2]
+managed, old_paths, cur = {}, {}, None
+rp = os.path.join(ad, "registry", "repos.yaml")
+if os.path.exists(rp):
+    for line in open(rp):
+        s = line.rstrip("\n")
+        if s.startswith("  ") and s.endswith(":") and not s.startswith("    "):
+            cur = s.strip()[:-1]; managed[cur] = True
+        elif cur and s.strip().startswith("- /"):
+            # old_paths: where this repo used to live, recorded when it was added from a checkout
+            old_paths[s.strip()[2:].rstrip("/")] = cur
+
+rows = []
+for d in sorted(os.listdir(proj)):
+    p = os.path.join(proj, d)
+    if not os.path.isdir(p):
+        continue
+    for f in sorted(os.listdir(p)):
+        if not f.endswith(".jsonl"):
+            continue
+        full = os.path.join(p, f)
+        try:
+            size = os.path.getsize(full)
+            if size == 0:
+                continue
+            mtime = os.path.getmtime(full)
+        except OSError:
+            continue
+        cwd, first, turns = "", "", 0
+        try:
+            with open(full, errors="replace") as fh:
+                for i, line in enumerate(fh):
+                    if i > 400:
+                        break
+                    try:
+                        o = json.loads(line)
+                    except ValueError:
+                        continue
+                    cwd = cwd or o.get("cwd") or ""
+                    if o.get("type") == "user":
+                        turns += 1
+                        if not first:
+                            m = o.get("message") or {}
+                            c = m.get("content")
+                            if isinstance(c, list):
+                                c = " ".join(x.get("text", "") for x in c if isinstance(x, dict))
+                            if isinstance(c, str) and c.strip() and not c.lstrip().startswith("<"):
+                                first = " ".join(c.split())[:90]
+        except OSError:
+            continue
+        # which repo does this conversation belong to? the folder it ran in, matched by name
+        base = os.path.basename(cwd.rstrip("/")) if cwd else d
+        repo = base if base in managed else ""
+        if not repo:                       # did this conversation run in a checkout we adopted?
+            c = cwd.rstrip("/")
+            for path, name in old_paths.items():
+                if c == path or c.startswith(path + "/"):
+                    repo = name
+                    break
+        if not repo:
+            for name in managed:
+                if f"/{name}/" in cwd + "/" or base == name:
+                    repo = name
+                    break
+        rows.append({"file": full, "slug": d, "cwd": cwd, "repo": repo, "turns": turns,
+                     "when": time.strftime("%d %b %Y", time.localtime(mtime)), "sort": mtime,
+                     "id": os.path.splitext(f)[0], "first": first or "(no question recorded)",
+                     "kb": max(1, size // 1024)})
+rows.sort(key=lambda r: -r["sort"])
+print(json.dumps(rows))
+PY
+COUNT=$(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))))' "$SCAN")
+[ "$COUNT" = 0 ] && { echo "No conversations found under $PROJ."; exit 0; }
+
+show(){ python3 - "$SCAN" "$1" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+limit = int(sys.argv[2])
+for i, r in enumerate(rows[:limit], 1):
+    who = r["repo"] or (r["cwd"].split("/")[-1] if r["cwd"] else r["slug"])
+    print(f'{i:>3}  {who[:22]:<22} {r["when"]:<12} {r["turns"]:>3} turns  {r["first"][:60]}')
+PY
+}
+
+echo
+echo "Conversations on this machine — $COUNT found"
+echo
+show 40
+[ "$COUNT" -gt 40 ] && echo "     … and $((COUNT-40)) older, not shown"
+echo
+
+[ "$LIST_ONLY" = 1 ] && exit 0
+
+# ---------------------------------------------------------------------------
+# 2. Choose. Numbers, ranges and repo names all work: "1 3 5", "1-4", "api".
+#    Several repos' conversations can go into one lane — that is the point.
+# ---------------------------------------------------------------------------
+if [ -z "$PICKS" ]; then
+  if [ -t 0 ]; then
+    echo "Which ones? numbers, ranges (1-4), or a repo name. Blank to stop."
+    printf "  bring in: "
+    read -r PICKS || true
+  fi
+  [ -n "${PICKS// /}" ] || { echo "Nothing selected. Nothing changed."; exit 0; }
+fi
+
+CHOSEN=$(mktemp "${TMPDIR:-/tmp}/lane-chosen.XXXXXX")
+trap 'rm -f "$SCAN" "$CHOSEN"' EXIT
+python3 - "$SCAN" "$PICKS" > "$CHOSEN" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+want, out = sys.argv[2].split(), []
+for tok in want:
+    if "-" in tok and all(p.isdigit() for p in tok.split("-", 1)):
+        a, b = (int(x) for x in tok.split("-", 1))
+        out += [r for i, r in enumerate(rows, 1) if a <= i <= b]
+    elif tok.isdigit():
+        i = int(tok)
+        if 1 <= i <= len(rows):
+            out.append(rows[i - 1])
+    else:
+        out += [r for r in rows if r["repo"] == tok or tok in (r["cwd"] or "")]
+seen, uniq = set(), []
+for r in out:
+    if r["file"] not in seen:
+        seen.add(r["file"]); uniq.append(r)
+print(json.dumps(uniq))
+PY
+N=$(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))))' "$CHOSEN")
+[ "$N" = 0 ] && { echo "Nothing matched \"$PICKS\". Nothing changed."; exit 0; }
+
+REPOS=$(python3 -c '
+import json,sys
+rows=json.load(open(sys.argv[1]))
+print(" ".join(sorted({r["repo"] for r in rows if r["repo"]})))' "$CHOSEN")
+echo
+echo "$N conversation(s) selected${REPOS:+, across: $REPOS}"
+
+# ---------------------------------------------------------------------------
+# 3. Where do they go. An existing lane, or a new one built from them.
+# ---------------------------------------------------------------------------
+if [ -z "$INTO" ]; then
+  if [ -t 0 ]; then
+    echo
+    echo "Put them in which lane? Type a new name to create one."
+    printf "  lane: "
+    read -r INTO || true
+  fi
+  [ -n "${INTO// /}" ] || { echo "No lane given. Nothing changed."; exit 0; }
+fi
+
+if [ ! -f "$AD/registry/lanes/$INTO.md" ]; then
+  [ -n "$REPOS" ] || { echo "Cannot create '$INTO': none of those conversations map to a managed repo."; exit 1; }
+  echo
+  echo "Creating lane '$INTO' with: $REPOS"
+  "$AD/scripts/lane-start" "$INTO" $REPOS || exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 4. Copy. The lane folder is where you will run `claude`, so that is where
+#    the conversations have to live. Originals are never touched.
+# ---------------------------------------------------------------------------
+dest_slug=$(printf '%s' "$AD/lanes/$INTO" | sed 's#[/_]#-#g')
+dest="$PROJ/$dest_slug"
+mkdir -p "$dest"
+copied=0; skipped=0
+while IFS=$'\t' read -r src id; do
+  [ -n "$src" ] || continue
+  if [ -f "$dest/$id.jsonl" ]; then skipped=$((skipped+1)); continue; fi
+  cp "$src" "$dest/$id.jsonl" && copied=$((copied+1))
+done <<EOF
+$(python3 -c '
+import json,sys
+for r in json.load(open(sys.argv[1])): print(r["file"]+"\t"+r["id"])' "$CHOSEN")
+EOF
+
+echo
+echo "  copied  $copied conversation(s) into $INTO"
+[ "$skipped" != 0 ] && echo "  kept    $skipped already there"
+echo "  left    every original untouched"
+echo
+echo "Resume one from inside the lane:"
+python3 -c '
+import json,sys
+for r in json.load(open(sys.argv[1]))[:3]: print("  claude --resume "+r["id"]+"   # "+r["first"][:52])' "$CHOSEN"
+echo
+echo "  cd $AD/lanes/$INTO && claude"

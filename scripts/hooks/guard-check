@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Is the guard healthy? Exits non-zero and explains if not. Used by status-all and before edits.
+G="$(dirname "$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$0")")/guard.py"
+if ! python3 -m py_compile "$G" 2>"${TMPDIR:-/tmp}/guard-syntax.$$.txt"; then
+  echo "!! scripts/hooks/guard.py does not compile — EVERY rule is currently off:"
+  sed 's/^/     /' "${TMPDIR:-/tmp}/guard-syntax.$$.txt"
+  exit 1
+fi
+AD="$(dirname "$(dirname "$(dirname "$G")")")"
+probe='{"hook_event_name":"PreToolUse","tool_name":"EnterWorktree","cwd":"'"$AD"'","tool_input":{}}'
+out=$(printf '%s' "$probe" | python3 "$G" 2>&1) || true
+echo "$out" | grep -q '"permissionDecision": "deny"' || { echo "!! guard.py compiles but is not enforcing — a known-denied probe came back as: ${out:-nothing}"; exit 1; }
+echo "the guard compiles and still refuses what it should"
+exit 0

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# lane-workspace — regenerate VS Code workspace files from the registry:
+#   lane.code-workspace         control plane + every ACTIVE lane's worktrees
+#   lanes/<id>/<id>.code-workspace        one focused window per lane (any status)
+# Run by lane-start / lane-resume / lane-park / lane-done. Safe to run any time.
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+python3 - "$AD" <<'PY'
+import json,os,re,sys,glob
+AD=sys.argv[1]; LANES=f"{AD}/lanes"; LANES_DIR=f"{AD}/registry/lanes"
+short={}
+for m in re.finditer(r"^  ([\w.-]+):\n(?:    .*\n)*?    short: (\S+)", open(f"{AD}/registry/repos.yaml").read(), re.M): short[m.group(1)]=m.group(2)
+def fm(path):
+    t=open(path).read(); head=t.split("---")[1] if t.startswith("---") else ""
+    st=re.search(r"^status: *(\S*)",head,re.M); repos=re.findall(r"^  - repo: (\S+)",head,re.M)
+    return (st.group(1) if st else ""), repos
+common={"files.exclude":{"repos":True,"lanes":True,".cache":True,"**/node_modules":True,"**/dist":True,"**/target":True,"**/.nx":True,"**/.venv":True},
+        "search.exclude":{"repos":True,"lanes":True,".cache":True,"**/node_modules":True,"**/dist":True,"**/target":True,"**/.nx":True,"**/.venv":True},
+        "git.repositoryScanMaxDepth":0,"git.autoRepositoryDetection":True,"git.openRepositoryInParentFolders":"never"}
+root_folders=[{"name":"lane","path":"."}]
+for f in sorted(glob.glob(f"{LANES_DIR}/*.md")):
+    id_=os.path.basename(f)[:-3]; status,repos=fm(f)
+    lane_folders=[{"name":"lane","path":os.path.relpath(AD,f"{LANES}/{id_}")}]
+    for r in repos:
+        p=f"{LANES}/{id_}/{r}"
+        if not os.path.exists(f"{p}/.git"): continue
+        label=f"{id_} · {short.get(r,r)}"
+        lane_folders.append({"name":label,"path":r})
+        if status=="active": root_folders.append({"name":label,"path":os.path.relpath(p,AD)})
+    if len(lane_folders)>1:
+        os.makedirs(f"{LANES}/{id_}",exist_ok=True)
+        json.dump({"folders":lane_folders,"settings":common},open(f"{LANES}/{id_}/{id_}.code-workspace","w"),indent=2)
+json.dump({"folders":root_folders,"settings":common},open(f"{AD}/lane.code-workspace","w"),indent=2)
+print(f"lane.code-workspace: {len(root_folders)-1} worktree folders from active lanes; per-lane files under lanes/*/")
+PY
