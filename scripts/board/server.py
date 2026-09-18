@@ -15,7 +15,7 @@ POST /api/commit            {lane,repo,message}
 POST /api/push | /api/pull  {lane,repo}
 POST /api/lane                {action:start|resume|park|done, id, repos?, note?}
 Every /api call needs header X-Token (printed at start, embedded in the page).
-Never operates on repos/ (mirrors). Never returns the content of secret files.
+Never operates on repos/ (mirrors). Never returns, stages or commits secret files.
 """
 import glob, json, os, re, secrets, subprocess, sys, threading, time, urllib.parse, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -638,11 +638,25 @@ class H(BaseHTTPRequestHandler):
             if route == "/api/stage":
                 fl = [f for f in body.get("files", []) if isinstance(f, str) and not f.startswith("-")]
                 if not fl: return self.send(400, {"error": "no files"})
+                # The diff of a secret file is withheld, so staging one would commit
+                # content nobody could review. Unstaging is always allowed.
+                if body.get("stage", True):
+                    bad = [f for f in fl if is_secret(f)]
+                    if bad:
+                        return self.send(400, {"error": "refusing to stage secret file(s): " + ", ".join(sorted(bad))
+                                                        + ". Keep them out of git, or add them to .gitignore."})
                 code, out, err = sh(["git", "-C", p, "add", "--", *fl]) if body.get("stage", True) else sh(["git", "-C", p, "restore", "--staged", "--", *fl])
             elif route == "/api/commit":
                 msg = (body.get("message") or "").strip()
                 if not msg: return self.send(400, {"error": "commit message required"})
-                if not git(p, "diff", "--cached", "--name-only"): return self.send(400, {"error": "nothing staged — tick files first"})
+                staged = git(p, "diff", "--cached", "--name-only")
+                if not staged: return self.send(400, {"error": "nothing staged — tick files first"})
+                # Belt to the staging brace: a secret can only be staged from outside the
+                # board, and it must not become a commit from inside it.
+                bad = [f for f in staged.splitlines() if f.strip() and is_secret(f.strip())]
+                if bad:
+                    return self.send(400, {"error": "refusing to commit secret file(s): " + ", ".join(sorted(bad))
+                                                    + ". Unstage them first (git restore --staged)."})
                 code, out, err = sh(["git", "-C", p, "commit", "-F", "-"], inp=msg + "\n")
                 if code == 0: out = git(p, "log", "-1", "--format=%h %s")
             elif route == "/api/push":

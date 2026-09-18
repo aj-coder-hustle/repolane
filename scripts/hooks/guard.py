@@ -288,6 +288,31 @@ def plane_target(rp):
         return "plane"
     return None
 
+def write_target_verdict(rp, cur, cwd):
+    """Why a write to `rp` is refused, or None. The file tools have judged the control
+    plane since the beginning; this is the same judgement for a shell write target, so
+    `echo x > guard.py` cannot do what `Write` is refused."""
+    if not rp:
+        return None
+    # A session's own hook config is never writable from inside a session: overwriting it
+    # is how a lane switches its own guard off.
+    if os.path.basename(rp).startswith("settings") and os.path.basename(os.path.dirname(rp)) == ".claude":
+        return ("That file is the session's own permission and hook configuration. Editing it from "
+                "inside a session is how the rules get switched off silently. Change it from a "
+                "dispatcher session at the control plane root, or ask __OWNER__.")
+    kind = plane_target(rp)
+    if kind in ("memory", "knowledge"):
+        return MEMORY_GATE
+    if kind == "lane":
+        wid = os.path.basename(rp)[:-3]
+        if cur and wid != cur:
+            return f"That is lane '{wid}'; this session is in '{cur}'. Only its own spec may be edited from here."
+        return None
+    if kind == "plane" and cur:
+        return PLANE_GATE.format(what=os.path.relpath(rp, AD))
+    return None
+
+
 # ---------------------------------------------------------------- PreToolUse
 if event == "PreToolUse":
     tool = data.get("tool_name", "")
@@ -407,8 +432,11 @@ if event == "PreToolUse":
         # missed it entirely: ../OTHER/file was permitted while its absolute twin was refused.
         # Collect those too and let resolve() turn them into absolute paths for the same checks.
         REL_TOK = re.compile(r"(?<![\w-])(\.\.(?:/[\w.-]+)*/?)")
+        PLANE_TOK = re.compile(r"(?<![\w-])(" + re.escape(AD) + r"/[\w./-]+)")
         ALL_TARGETS = re.compile(r"(^|[\s;&|])(rm|touch|mkdir|chmod|dd|truncate|tee)\b|(^|\s)sed\s+-i\b")
-        LAST_TARGET = re.compile(r"(^|[\s;&|])(cp|mv|ln|install|rsync)\b")
+        LAST_TARGET = re.compile(r"(^|[\s;&|])(cp|ln|install|rsync)\b")
+        # `mv` removes its source as well as writing its destination, so both ends count.
+        MOVE_TARGETS = re.compile(r"(^|[\s;&|])mv\b")
         def resolve(raw):
             s = raw
             for v in ("${WS_HOME}", "$WS_HOME", "${AD}", "$AD"): s = s.replace(v, AD)
@@ -417,6 +445,10 @@ if event == "PreToolUse":
             for seg in [s for s in re.split(r"[;&|]{1,2}|\n", cmdA) if s.strip()]:
                 toks = [m.group(1) for m in PATH_TOK.finditer(seg)]
                 toks += [m.group(1) for m in REL_TOK.finditer(seg)]
+                # PATH_TOK only matches paths that contain lanes/ or repos/, so an
+                # absolute path to the control plane's own files — scripts/, CLAUDE.md,
+                # .claude/ — was never collected and therefore never judged.
+                toks += [m.group(1) for m in PLANE_TOK.finditer(seg)]
                 if not toks: continue
                 paths = [resolve(x) for x in toks]
                 # another lane: any mention at all
@@ -426,7 +458,7 @@ if event == "PreToolUse":
                         deny(event, REACH_MSG.format(lane=lane_t) if not cur else STAY_MSG.format(cur=cur))
                 # a mirror: only when it is written to
                 targets = []
-                if ALL_TARGETS.search(seg): targets = paths
+                if ALL_TARGETS.search(seg) or MOVE_TARGETS.search(seg): targets = paths
                 elif LAST_TARGET.search(seg):
                     # cp/mv/ln write to their LAST argument; everything before it is a source and may be read.
                     args = [x.strip("\"'") for x in seg.split() if not x.startswith("-")]
@@ -440,6 +472,8 @@ if event == "PreToolUse":
                     if a == REPOS or a.startswith(REPOS + "/"):
                         deny(event, f"{os.path.relpath(a, AD)} is inside a read-only mirror. Mirrors stay on the "
                                     f"default branch and clean; work happens in a lane. Reading them is fine.")
+                    reason = write_target_verdict(a, cur, cwd)
+                    if reason: deny(event, reason)
         if not OURS:
             # any absolute path under $HOME that is not inside lane
             for m in re.finditer(r"(?<![\w-])((?:~|/Users/[\w.-]+)/[^\s\"';|&)]+)", cmdA):
