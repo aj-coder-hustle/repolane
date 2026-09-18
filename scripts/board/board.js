@@ -290,8 +290,8 @@ async function act(a){const st=S.data?.state||{};const label=a==='push'?'Pushing
   try{const j=await api('/api/'+a,{method:'POST',body:JSON.stringify({lane:S.lane,repo:S.repo})});toast('ok',(j.output||'').split('\n').slice(-2).join('\n')||a+' done',{replace:t})}
   catch(e){const out=e.output||e.message;t.remove();if(a==='push'&&/rejected|fetch first|non-fast-forward/i.test(out))toast('err','Push rejected — the remote has work you do not have.\n\n'+out,{fix:{label:`Pull ${st.behind||''}`.trim(),run:()=>act('pull')}});else if(a==='pull')toast('err','Pull needs a merge — fast-forward only. Sort it out in the terminal.\n\n'+out);else toast('err',out)}
   setBusy(null);await refreshRepo()}
-async function primary(){const na=S.data?.nextAction;if(!na)return;switch(na.id){case'pull':return act('pull');case'push':case'publish':return act('push');case'commit':$('#msg').focus();return;case'stage_all':return stage(S.data.files.filter(f=>f.unstaged).map(f=>f.file),true);case'create_pr':{try{const j=await api('/api/pr',{method:'POST',body:JSON.stringify({lane:S.lane,repo:S.repo})});window.open(j.url,'_blank')}catch(e){toast('err',e.message)}return}case'open_pr':if(na.url)window.open(na.url,'_blank');return;case'finish':return finishDlg();case'resume':return wsRun({action:'resume',id:S.lane})}}
-async function wsRun(b){const labels={start:'Starting…',resume:'Resuming…',park:'Parking…',done:'Finishing…'};setBusy({id:b.action,label:labels[b.action]});const t=toast('prog',labels[b.action]);
+async function primary(){const na=S.data?.nextAction;if(!na)return;switch(na.id){case'pull':return act('pull');case'push':case'publish':return act('push');case'commit':$('#msg').focus();return;case'stage_all':return stage(S.data.files.filter(f=>f.unstaged).map(f=>f.file),true);case'create_pr':{try{const j=await api('/api/pr',{method:'POST',body:JSON.stringify({lane:S.lane,repo:S.repo})});window.open(j.url,'_blank')}catch(e){toast('err',e.message)}return}case'open_pr':if(na.url)window.open(na.url,'_blank');return;case'finish':return finishDlg();case'resume':return laneRun({action:'resume',id:S.lane})}}
+async function laneRun(b){const labels={start:'Starting…',resume:'Resuming…',park:'Parking…',done:'Finishing…'};setBusy({id:b.action,label:labels[b.action]});const t=toast('prog',labels[b.action]);
   try{const j=await api('/api/lane',{method:'POST',body:JSON.stringify(b)});toast('ok',(j.output||'ok').split('\n').slice(-3).join('\n'),{replace:t});setBusy(null);S.board=await api('/api/board');if(b.action==='start'){S.boardSig=null;await openWs(b.id)}else if(b.action==='done'){S.lane=null;S.repo=null;renderHome();renderCrumb();goHome()}else{renderHome();renderCrumb();renderRepos();await loadRepo(false)}}
   catch(e){t.remove();toast('err',(b.action+' failed\n\n'+(e.output||e.message)));setBusy(null)}}
 async function refReveal(path){try{await api('/api/ref',{method:'POST',body:JSON.stringify({lane:S.lane,action:'reveal',path})})}catch(e){toast('err',e.message)}}
@@ -333,14 +333,14 @@ function amendDlg(){
 function openDlg(html,onOk,validate){const d=$('#dlg');S.dialog=true;d.innerHTML=html+`<div class="row"><button type="button" id="dcancel">Cancel</button><button type="button" class="pri" id="dok">OK</button></div>`;d.showModal();const ok=d.querySelector('#dok');d.querySelector('#dcancel').onclick=()=>d.close();
   const check=()=>{ok.disabled=validate?!validate(d):false};d.oninput=check;check();ok.onclick=async()=>{if(ok.disabled)return;d.close();try{await onOk(d)}catch(e){toast('err',e.message)}};d.onclose=()=>{S.dialog=false};d.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&e.target.tagName!=='TEXTAREA'){e.preventDefault();ok.click()}};return d}
 function startDlg(){const repos=S.board?.repos||[];const d=openDlg(`<h3>Start a lane</h3><label>Id</label><input id="i" placeholder="ABC-123-short-name" autocomplete="off"><div class="hint" id="ih">Ticket key or a short slug.</div><label>Repos</label><input id="r" placeholder="api@develop web" autocomplete="off"><div class="hint">name[:branch][@base], space separated.</div><div class="chips">${repos.map(r=>`<span class="chip" data-r="${esc(r)}">${esc(r)}</span>`).join('')}</div>`,
-    d=>wsRun({action:'start',id:d.querySelector('#i').value.trim(),repos:d.querySelector('#r').value.trim()}),d=>{const id=d.querySelector('#i').value.trim();const okId=/^[A-Za-z0-9._-]+$/.test(id);d.querySelector('#ih').textContent=id&&!okId?'Letters, numbers, dot, dash, underscore.':'Ticket key or a short slug.';return okId&&d.querySelector('#r').value.trim().length>0});
+    d=>laneRun({action:'start',id:d.querySelector('#i').value.trim(),repos:d.querySelector('#r').value.trim()}),d=>{const id=d.querySelector('#i').value.trim();const okId=/^[A-Za-z0-9._-]+$/.test(id);d.querySelector('#ih').textContent=id&&!okId?'Letters, numbers, dot, dash, underscore.':'Ticket key or a short slug.';return okId&&d.querySelector('#r').value.trim().length>0});
   d.querySelector('#dok').textContent='Start';d.querySelectorAll('.chip[data-r]').forEach(c=>c.onclick=()=>{const r=d.querySelector('#r');r.value=(r.value+' '+c.dataset.r).trim();d.oninput()});d.querySelector('#i').focus()}
 function parkDlg(){const w=cur();if(!w)return;const dirty=w.repos.filter(r=>r.exists&&(r.unstaged||r.staged));const unp=w.repos.filter(r=>r.exists&&r.ahead);
   const warn=`<div class="warnbox"><b>What parking does</b><ul>${dirty.length?dirty.map(r=>`<li>${esc(shortOf(r))}: ${(r.unstaged||0)+(r.staged||0)} uncommitted file(s) will be committed as <span class="mono">wip: park ${esc(w.id)}</span> on <span class="mono">${esc(r.branch)}</span></li>`).join(''):'<li>No uncommitted work — nothing will be committed.</li>'}${unp.length?`<li>${esc(unp.map(shortOf).join(', '))}: unpushed commits stay local until you push.</li>`:''}<li>Worktrees stay on disk. The lane leaves the active list; Resume brings it back.</li></ul></div>`;
   const d=openDlg(`<h3>Park ${esc(w.id)}</h3>${warn}<label>Resume note</label><textarea id="n" rows="4" placeholder="where things stand, next step, blockers"></textarea><div class="hint">Required, at least 10 characters — you will read it in a week.</div>`,
-    d=>wsRun({action:'park',id:w.id,note:d.querySelector('#n').value.trim()}),d=>d.querySelector('#n').value.trim().length>=10);d.querySelector('#dok').textContent='Park';d.querySelector('#n').focus()}
+    d=>laneRun({action:'park',id:w.id,note:d.querySelector('#n').value.trim()}),d=>d.querySelector('#n').value.trim().length>=10);d.querySelector('#dok').textContent='Park';d.querySelector('#n').focus()}
 function finishDlg(){const w=cur();if(!w)return;const bad=w.repos.filter(r=>r.exists&&(r.unstaged||r.staged||r.ahead));const d=openDlg(`<h3>Finish ${esc(w.id)}?</h3><div class="warnbox ${bad.length?'bad':''}"><b>This removes the worktrees</b> under lanes/${esc(w.id)}/ and archives the lane file. Branches and commits stay in git. ${bad.length?'Refused right now:':'Nothing uncommitted or unpushed was found.'}</div><div class="mono" style="margin-top:var(--s-5)">${w.repos.map(r=>{const ok=!r.exists||!(r.unstaged||r.staged||r.ahead);return`<div class="${ok?'ok':'bad'}">${esc(shortOf(r))}  ${!r.exists?'no worktree':ok?'clean, pushed':`${(r.unstaged||0)+(r.staged||0)} uncommitted, ${r.ahead||0} unpushed`}</div>`}).join('')}</div>${bad.length?`<div class="hint bad">Commit and push ${esc(bad.map(shortOf).join(', '))} first.</div>`:''}`,
-    ()=>wsRun({action:'done',id:w.id}),()=>bad.length===0);const ok=d.querySelector('#dok');ok.textContent='Finish';ok.className='danger'}
+    ()=>laneRun({action:'done',id:w.id}),()=>bad.length===0);const ok=d.querySelector('#dok');ok.textContent='Finish';ok.className='danger'}
 /* ---------- events ---------- */
 /* ---------- screens ---------- */
 function setView(v){S.view=v;rememberPlace();
@@ -375,11 +375,11 @@ function agoDate(d){
 const exact=ts=>ts?new Date(ts*1000).toLocaleString(undefined,
   {weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
 const sinceCommit=ago;
-const wsTouched=w=>Math.max(0,...w.repos.map(r=>r.last||0));
+const laneTouched=w=>Math.max(0,...w.repos.map(r=>r.last||0));
 const changed=r=>(r.unstaged||0)+(r.staged||0);
-const wsChanged=w=>w.repos.reduce((n,r)=>n+changed(r),0);
-const wsAhead=w=>w.repos.reduce((n,r)=>n+(r.ahead||0),0);
-const wsDrift=w=>Math.max(0,...w.repos.map(r=>r.base_behind||0));
+const laneChanged=w=>w.repos.reduce((n,r)=>n+changed(r),0);
+const laneAhead=w=>w.repos.reduce((n,r)=>n+(r.ahead||0),0);
+const laneDrift=w=>Math.max(0,...w.repos.map(r=>r.base_behind||0));
 
 /* a repo's state as one chip: the loudest true thing about it */
 function repoChip(r){
@@ -396,13 +396,13 @@ function repoChip(r){
 /* ---------- home: a reading of the situation, not a list ---------- */
 function homeLede(b){
   const act=b.lanes.filter(w=>w.status==='active');
-  const dirty=act.filter(w=>wsChanged(w)),ahead=act.filter(w=>wsAhead(w));
+  const dirty=act.filter(w=>laneChanged(w)),ahead=act.filter(w=>laneAhead(w));
   const failing=act.filter(w=>w.repos.some(r=>r.pr_failing));
-  const drift=act.map(w=>[w,wsDrift(w)]).filter(([,d])=>d>2).sort((a,b2)=>b2[1]-a[1])[0];
+  const drift=act.map(w=>[w,laneDrift(w)]).filter(([,d])=>d>2).sort((a,b2)=>b2[1]-a[1])[0];
   const bits=[];
   if(dirty.length)bits.push(`${dirty.length===1?'One lane has':plural(dirty.length,'lane')+' have'} <span class="att">uncommitted work</span>`);
   else bits.push('Nothing is uncommitted');
-  const ac=ahead.reduce((n,w)=>n+wsAhead(w),0);
+  const ac=ahead.reduce((n,w)=>n+laneAhead(w),0);
   if(ac)bits.push(`${plural(ac,'commit')} <span class="cool">waiting to push</span>`);
   bits.push(failing.length?`<span class="att">${plural(failing.length,'PR')} failing</span>`:'nothing is failing');
   let s=bits.join(', ').replace(/,([^,]*)$/,', and$1')+'.';
@@ -416,13 +416,13 @@ function todoList(b){
   if(drift){const[w,r]=drift;const ch=changed(r);
     out.push({tone:'drift',ic:'pull',html:`<b>${esc(shortOf(r))}</b> in <b>${esc(w.id)}</b> is ${r.base_behind} behind <b>${esc(r.base_branch||'its base')}</b>${r.base_from_pr?', the branch its PR merges into':''}${ch?`, while ${plural(ch,'file')} sit open on it`:''}. The longer that sits, the worse the merge.`,
       act:'Open it',go:[w.id,r.repo]});}
-  const dirty=act.filter(w=>wsChanged(w));
-  if(dirty.length){const total=dirty.reduce((n,w)=>n+wsChanged(w),0);const w=dirty.sort((a,c)=>wsChanged(c)-wsChanged(a))[0];
+  const dirty=act.filter(w=>laneChanged(w));
+  if(dirty.length){const total=dirty.reduce((n,w)=>n+laneChanged(w),0);const w=dirty.sort((a,c)=>laneChanged(c)-laneChanged(a))[0];
     const r=w.repos.filter(x=>changed(x)).sort((a,c)=>changed(c)-changed(a))[0];
     out.push({tone:'',ic:'diff',html:`${plural(total,'file')} changed across ${plural(dirty.length,'lane')}, none committed yet.`,
       act:`Review ${esc(shortOf(r))} in ${esc(w.id)}`,go:[w.id,r.repo]});}
-  const push=act.filter(w=>wsAhead(w)&&!wsChanged(w));
-  if(push.length){const n=push.reduce((x,w)=>x+wsAhead(w),0);
+  const push=act.filter(w=>laneAhead(w)&&!laneChanged(w));
+  if(push.length){const n=push.reduce((x,w)=>x+laneAhead(w),0);
     out.push({tone:'calm',ic:'push',html:`${plural(n,'branch')==='1 branchs'?'One branch is':plural(push.length,'lane')+' are'} ahead of origin with nothing uncommitted — safe to push.`,
       act:`Open ${esc(push[0].id)}`,go:[push[0].id,push[0].repos.find(r=>r.ahead)?.repo]});}
   if(!out.length)out.push({tone:'calm',ic:'check',html:'Everything is committed, pushed and passing. Nothing wants a decision.',act:'',go:null});
@@ -451,13 +451,13 @@ function ticketChip(w,cls='tk'){
     title="Open ${esc(t.key)} in Jira" onclick="event.stopPropagation()">${esc(t.key)}${ico('ext','sm')}</a>`;
 }
 function homeCard(w,park){
-  const ch=wsChanged(w),ahead=wsAhead(w),drift=wsDrift(w),fail=w.repos.some(r=>r.pr_failing);
+  const ch=laneChanged(w),ahead=laneAhead(w),drift=laneDrift(w),fail=w.repos.some(r=>r.pr_failing);
   const now=!park&&(ch||fail||drift>2);
   const goal=firstSentence(w.goal,200),note=firstSentence(w.note,150);
   return`<div class="card ${now?'now':''} ${park?'park':''}" data-open="${esc(w.id)}" tabindex="0">
     <div class="ch"><span class="nm">${esc(w.id)}</span>${ticketChip(w)}
       <span class="tk state ${park?'parked':'active'}">${park?'parked':'active'}</span>
-      <span class="when" title="${esc(park?'parked, lane file updated '+w.updated:exact(wsTouched(w))||w.updated)}">${esc(park?'parked '+agoDate(w.updated):ago(wsTouched(w))||agoDate(w.updated))}</span></div>
+      <span class="when" title="${esc(park?'parked, lane file updated '+w.updated:exact(laneTouched(w))||w.updated)}">${esc(park?'parked '+agoDate(w.updated):ago(laneTouched(w))||agoDate(w.updated))}</span></div>
     ${goal?`<p class="goal">${esc(goal)}</p>`:''}
     ${note&&!park?`<div class="say"><b>Last note:</b> ${esc(note)}</div>`:''}
     <div class="repos">${w.repos.map(repoChip).join('')}
@@ -467,16 +467,16 @@ function renderHome(){
   const b=S.board,el=$('#home');
   if(!b||!b.lanes){el.innerHTML='<div class="hmain"><div class="none">Loading…</div></div>';return}
   const act=b.lanes.filter(w=>w.status==='active'),park=b.lanes.filter(w=>w.status!=='active');
-  const wants=act.filter(w=>wsChanged(w)||wsDrift(w)>2||w.repos.some(r=>r.pr_failing));
+  const wants=act.filter(w=>laneChanged(w)||laneDrift(w)>2||w.repos.some(r=>r.pr_failing));
   const rest=act.filter(w=>!wants.includes(w));
   const now=new Date();
   const date=now.toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'})+' · '+
              now.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
   const todos=todoList(b);
   const tally=[['branch','active',act.length],['branch','parked',park.length],
-    ['diff','files changed',act.reduce((n,w)=>n+wsChanged(w),0)],
-    ['push','commits to push',act.reduce((n,w)=>n+wsAhead(w),0)],
-    ['pull','behind base',Math.max(0,...act.map(wsDrift))],
+    ['diff','files changed',act.reduce((n,w)=>n+laneChanged(w),0)],
+    ['push','commits to push',act.reduce((n,w)=>n+laneAhead(w),0)],
+    ['pull','behind base',Math.max(0,...act.map(laneDrift))],
     ['warn','checks failing',act.reduce((n,w)=>n+w.repos.filter(r=>r.pr_failing).length,0)]];
   el.innerHTML=`<div class="hmain">
     <div class="date">${esc(date)}</div>
@@ -509,7 +509,7 @@ function renderCrumb(){
   else c.innerHTML='';
   let chips='';
   if(S.view==='work'&&w){
-    const ch=wsChanged(w),ah=wsAhead(w),fail=w.repos.filter(r=>r.pr_failing).length;
+    const ch=laneChanged(w),ah=laneAhead(w),fail=w.repos.filter(r=>r.pr_failing).length;
     if(ch)chips+=`<span class="chip att">${ico('diff','sm')} ${ch} changed</span>`;
     if(ah)chips+=`<span class="chip acc">${ico('push','sm')} ${ah}</span>`;
     if(fail)chips+=`<span class="chip bad">${ico('warn','sm')} ${fail} failing</span>`;
@@ -518,14 +518,14 @@ function renderCrumb(){
     if(!ch&&!ah&&!fail)chips+=`<span class="chip ok">${ico('check','sm')} clean</span>`;
   }else if(S.board){
     const a=S.board.lanes.filter(x=>x.status==='active');
-    const ch=a.reduce((n,x)=>n+wsChanged(x),0),ah=a.reduce((n,x)=>n+wsAhead(x),0);
+    const ch=a.reduce((n,x)=>n+laneChanged(x),0),ah=a.reduce((n,x)=>n+laneAhead(x),0);
     if(ch)chips+=`<span class="chip att">${ico('diff','sm')} ${ch} changed</span>`;
     if(ah)chips+=`<span class="chip">${ico('push','sm')} ${ah} to push</span>`;
   }
   $('#chips').innerHTML=chips;
   let act='';
   if(S.view==='work'&&w){
-    if(w.status!=='active')act=`<button class="pri" onclick="wsRun({action:'resume',id:'${esc(w.id)}'})">${ico('play','sm')}Resume</button>`;
+    if(w.status!=='active')act=`<button class="pri" onclick="laneRun({action:'resume',id:'${esc(w.id)}'})">${ico('play','sm')}Resume</button>`;
     else{const allDone=w.repos.every(r=>r.exists&&!r.unstaged&&!r.staged&&!r.ahead&&(r.pr_state==='MERGED'||r.pr_state==null));
       act=(allDone?`<button class="pri" onclick="finishDlg()">${ico('flag','sm')}Finish</button>`:'')
         +`<button onclick="parkDlg()" title="Write a resume note and put this lane down">${ico('park','sm')}Park</button>`;}
@@ -571,7 +571,7 @@ function renderRepo(){
 /* the action bar says what happens next in words, then offers it */
 function renderActbar(){
   const d=S.data,w=cur();
-  if(!d){$('#actwhy').innerHTML='';$('#actbtns').innerHTML=w&&w.status!=='active'?`<button class="pri" onclick="wsRun({action:'resume',id:'${esc(w.id)}'})">Resume this lane</button>`:'';return}
+  if(!d){$('#actwhy').innerHTML='';$('#actbtns').innerHTML=w&&w.status!=='active'?`<button class="pri" onclick="laneRun({action:'resume',id:'${esc(w.id)}'})">Resume this lane</button>`:'';return}
   const st=d.state,na=d.nextAction||{id:'none',label:'Nothing to do'};
   const staged=d.files.filter(f=>f.staged).length,unst=d.files.filter(f=>f.unstaged).length;
   const r=curRepo();
@@ -902,7 +902,7 @@ function renderPal(){
     if(r.kind==='repo'&&r.r){const ch=changed(r.r);
       if(ch)state=`<span class="warn stat">${ico('diff','sm')}${ch}</span>`;
       else if(r.r.ahead)state=`<span class="acc stat">${ico('push','sm')}${r.r.ahead}</span>`;}
-    if(r.kind==='lane'&&r.w){const ch=wsChanged(r.w);if(ch)state=`<span class="warn stat">${ico('diff','sm')}${ch}</span>`}
+    if(r.kind==='lane'&&r.w){const ch=laneChanged(r.w);if(ch)state=`<span class="warn stat">${ico('diff','sm')}${ch}</span>`}
     html+=`<div class="prow ${i===S.pal.i?'on':''}" data-i="${i}">${ico(icon)}
       <span class="nm">${markMatch(r.name,q)}</span><span class="sub">${esc(r.sub||'')}</span>
       <span class="c">${state}${i===S.pal.i?'<span class="acc">open ⏎</span>':''}</span></div>`;

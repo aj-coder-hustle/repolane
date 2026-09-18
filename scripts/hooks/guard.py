@@ -213,8 +213,8 @@ SCOPES = """MEMORY SCOPES — where a thing belongs is decided by how long it st
   preference   knowledge/preferences.md            forever, all work    "how should Claude work with me?"
   cross-repo   memory/<slug>.md                    forever, any repo    "true in every repo?"
   repo         memory/<repo>/<slug>.md             forever, that repo   "still true after this ticket ships?"
-  lane   registry/lanes/<id>.md        until it finishes    "only matters while this work is live?"
-               ## Findings section                  then archived"""
+  lane         registry/lanes/<id>.md              until it finishes    "only matters while this work is live?"
+               (its ## Findings section)                                  then archived with the lane"""
 MEMORY_GATE = (
     "Memories are not written directly — the scope is __OWNER__'s decision.\n" + SCOPES + "\n"
     "Do this instead:\n"
@@ -326,7 +326,7 @@ if event == "PreToolUse":
         # Judge each segment on its own: our own lane-* scripts are the approved path, even inside a compound command.
         for seg in re.split(r"[;&|]{1,2}|\n", ti.get("command", "")):
             s = seg.strip()
-            if not s or re.match(r"(\S*/)?ws-[\w-]+\b", s) or re.match(r"(\S*/)?(scripts|bin)/", s): continue
+            if not s or re.match(r"(\S*/)?lane-[\w-]+\b", s) or re.match(r"(\S*/)?(scripts|bin)/", s): continue
             if re.search(r"(?:^|[\s'\"])(?:[\w./~-]*/)?(?:memory|knowledge)/[\w./-]+", s) and \
                (re.search(r"(^|[\s])(rm|mv|cp|sed\s+-i|tee|touch)\b", s) or re.search(r">>?\s*\S*(memory|knowledge)/", s)):
                 if cur or os.path.realpath(cwd) != os.path.realpath(AD): deny(event, MEMORY_GATE)
@@ -654,7 +654,14 @@ if event == "SessionEnd":
         if touched: line += "; touched " + ", ".join(sorted(touched)[:12]) + (" …" if len(touched) > 12 else "")
         if any_dirty: line += " — UNPARKED: uncommitted work left in a worktree"
         with open(f"{LANES_DIR}/{cur}.md", "a") as f: f.write(line + "\n")
-        subprocess.run(["sed", "-i", "", f"s/^updated: .*/updated: {now[:10]}/", f"{LANES_DIR}/{cur}.md"])
+        # Rewrite `updated:` in place. Done in python because `sed -i` needs an argument on BSD
+        # and refuses one on GNU, and this runs on both.
+        try:
+            sp = f"{LANES_DIR}/{cur}.md"
+            txt = re.sub(r"^updated: .*$", f"updated: {now[:10]}", open(sp).read(), count=1, flags=re.M)
+            open(sp, "w").write(txt)
+        except OSError:
+            pass
     sys.exit(0)
 
 if event == "SessionStart" and data.get("source") == "compact":

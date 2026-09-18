@@ -1,18 +1,70 @@
+<div align="center">
+
 # Lane
 
 **One piece of work at a time, across all your repos.**
 
-Working on several repos at once, with several things in flight, turns into a mess: which branch
-was that on, which checkout is current, what was I doing last Tuesday. Lane is a control plane for
-that. One folder holds every repo you work on, every piece of work in progress, and everything
-Claude has learned about how you work.
+A control plane for multi-repo development — and a set of rules that keeps an AI coding session
+inside the work it was actually asked to do.
+
+[Install](#install) · [How it works](#how-it-works) · [The rules](#why-it-refuses-things) · [Docs](docs/) · [MIT](LICENSE)
+
+</div>
+
+---
+
+## The problem
+
+Your product is six repos. A ticket touches three of them. You have four tickets in flight.
+
+So you keep four checkouts of `web`, two of `api`, and a `web-hotfix` you are afraid to delete.
+Monday's branch is checked out in a directory you last opened on Thursday. Two of those checkouts
+have uncommitted work in them. You stash something and lose track of which clone it landed in.
+
+Then you point Claude Code at one of those folders, and it makes it worse: the session only sees
+one repo, so cross-repo work becomes a sequence of context-free single-repo sessions. Ask it to fix
+one bug and it wanders into three other repos looking for context, filling its window with code
+nobody asked about. It learns something useful about your deploy process and writes it down as a
+permanent global preference. It commits when you wanted to look first.
+
+Lane fixes the layout *and* the behaviour, because neither one works on its own.
+
+## The idea
+
+**A lane is one piece of work.** It may span any number of repos.
 
 ```sh
-lane start ABC-123 web api      # a branch and a worktree in each repo, from the default branch
-cd lanes/ABC-123 && claude      # Claude opens knowing what this work is
-lane park ABC-123 "waiting on review"
-lane done ABC-123               # removes the folders once everything is pushed
+lane start ABC-123 web api
 ```
+
+That gives you a branch named `ABC-123` in both repos and a folder holding a worktree of each:
+
+```
+lanes/ABC-123/
+  web/     a worktree of repos/web on branch ABC-123
+  api/     a worktree of repos/api on branch ABC-123
+  refs/    anything you attached for reference
+```
+
+Each repo is cloned **once**, into `repos/<name>`, and that copy is a mirror: always on its default
+branch, never edited, never switched. Every lane's worktrees share its object store, so the second
+piece of work costs a checkout of files rather than a full clone, and switching between them is
+instant. Ten lanes across six repos is still six clones on disk.
+
+You run Claude from `lanes/<id>/` — the lane itself, not one of the repos inside it. No repo is the
+main one. That single detail is what keeps multi-repo work from collapsing back into single-repo
+work.
+
+```sh
+cd lanes/ABC-123 && claude       # opens knowing what this work is
+lane park ABC-123 "waiting on review for the api side"
+lane done ABC-123                # removes the folders once everything is pushed
+```
+
+`lane park` writes a resume note *and* wip-commits anything dirty, so nothing is left loose in a
+worktree. `lane done` refuses while any repo is dirty or holds unpushed commits — and it checks
+every repo before it removes any of them, so a lane whose second repo has unpushed work does not
+lose the first repo's worktree on the way to failing.
 
 ## Install
 
@@ -23,66 +75,152 @@ lane init             # asks two questions, sets the machine up
 lane add <git-url>    # or: lane add ~/path/to/a/checkout/you/already/have
 ```
 
-Requires **git**, **python3** and **bash**. The GitHub CLI (`gh`) is optional — without it you lose
-pull request status and `lane gh`. Claude Code is optional too: the commands all work on their own,
-and the hooks only matter when Claude is driving.
+| | |
+|---|---|
+| **git** | required — worktrees are the whole mechanism |
+| **python3** | required — the hook dispatcher and the board are stdlib Python, no packages |
+| **bash** | required — every command is a bash script |
+| **gh** | optional — pull request status and `lane gh` |
+| **Claude Code** | optional — the commands work on their own; the hooks only matter when Claude is driving |
 
-Tested on macOS and Linux. Windows works under WSL.
+Nothing is compiled, nothing is published to a package registry, and nothing phones home. Lane is a
+folder of scripts. Tested on macOS and Linux; on Windows use WSL.
 
-## The idea
+`lane add` takes a checkout you already have, not just a URL — it adopts the existing `.git`, keeps
+the origin, and remembers where it came from so `lane import` can find the Claude conversations you
+already had about that repo.
 
-A **lane** is one piece of work, which may span several repos. Starting one gives you a folder with
-a worktree of each repo it touches, all on the same branch.
+## How it works
 
-```
-lanes/ABC-123/
-  web/     a worktree of repos/web on branch ABC-123
-  api/     a worktree of repos/api on branch ABC-123
-  refs/    anything you attached for reference
-```
+Three pieces, each doing one job.
 
-Repos live once, in `repos/`, as mirrors that stay clean and stay on their default branch. Every
-lane's worktrees share that object store, so a second piece of work costs a checkout of files
-rather than a full clone — and switching between them is instant.
+### 1. The layout
 
-You run Claude from `lanes/<id>/`, never from inside one of the repos. No repo is the main one.
+`repos/` holds clean mirrors. `lanes/` holds the work. `registry/` is the source of truth that
+describes both — `repos.yaml` lists the repos, and `registry/lanes/<id>.md` is one file per lane
+carrying its goal, resume note, findings, log, and the list of repos in scope.
 
-## Everything else
+That registry file is also **the allow-list for a session**: the repos it names are the repos the
+work may touch. `repos/` and `lanes/` are gitignored, because they are machine state that the
+registry can rebuild. Deleted a worktree by hand? `lane resume <id>` prunes the stale registration
+and recreates it.
 
-```
-lane status     where everything stands        lane board    the same thing in a browser
-lane import     past Claude conversations      lane note     write something worth remembering
-lane run/gh     run a command in one repo without leaving the lane
-lane merge      two pieces of work turned out to be one
-lane help       the full list
-```
+### 2. The guard
 
-`lane board` opens a local web page — a git client scoped to your work, with diffs, a commit box,
-history, notes and memory. It binds to `127.0.0.1` only and sends nothing anywhere.
+`scripts/hooks/guard.py` is a hook dispatcher wired into Claude Code's `PreToolUse`, `PostToolUse`,
+`UserPromptSubmit`, `PreCompact`, `SessionEnd`, `SessionStart` and worktree events. It reads the
+hook JSON on stdin and answers allow, deny, or "here is some context you are missing."
+
+It is not a prompt asking nicely. It inspects the actual tool call — including the text of every
+Bash command, each segment of a chain, and every path any of them names — and it judges paths by
+what was *written*, so a symlink or a `..` that climbs out of the lane is refused exactly like its
+absolute twin. It fails open on malformed input, because a crashed guard that blocks everything is
+worse than one that lets an odd call through.
+
+It also *adds* context rather than only removing options: the first time a session touches a repo
+it injects that repo's own `CLAUDE.md` and rules list, and the first prompt in a lane carries the
+memory index for every repo in scope.
+
+`lane doctor` compiles it and fires a known-denied probe at it, so you find out when the rules stop
+being enforced. There is a 163-case suite in `scripts/hooks/test-guard.sh`.
+
+### 3. The board
+
+`lane board` serves a local web page: every lane, what each one touches, the files you changed, the
+diff of the one you picked, a commit box, history across all repos of a lane at once, notes, refs
+and the memory browser. It is plain HTML, CSS and JavaScript with no build step, served by a stdlib
+Python server bound to `127.0.0.1` with a per-run token. Secret files are dropped by path before git
+is ever asked for their content.
 
 ## Why it refuses things
 
-Lane is opinionated about what a Claude session may touch, and every refusal exists because the
-alternative went wrong at least once.
+Every rule below exists because the alternative went wrong at least once. `docs/rules.md` tells
+each story.
 
-- A session is fenced into the lane it belongs to: no reading other lanes, no reading the mirrors,
-  nothing outside the folder.
-- `.env` and credential files are never readable — not even with permission, because the values
-  would end up in a transcript. `lane keys <path>` gives you the key names instead.
-- Pushing to `main`, `master` or `develop` needs an explicit marker you can see. Remotes may never
-  be added, changed or removed.
-- Memory is never written silently: Claude drafts, then asks which of the four scopes it belongs
-  in, so everything does not quietly become a permanent global preference.
-- New branches start from the default branch. Commits are proposed, not made behind your back.
+- **A session stays in its lane.** It cannot read another lane, the mirrors, or anything outside the
+  control plane. Need something from outside? `lane ref <id> add <path>` attaches it once, and it is
+  readable at `lanes/<id>/refs/<name>` — read-only unless you pass `--rw`.
+- **Nobody enters a repo.** The session sits at the lane root. `lane run <repo> <cmd>`,
+  `lane gh <repo> <args>`, `git -C <repo>` and editing `<repo>/file` all work without moving, and a
+  `cd` into a repo is refused — in Claude Code a `cd` moves the session itself, so one `cd` for
+  convenience strands it.
+- **Secrets are never read.** Not `.env`, not `*.pem`, not `credentials.json` — not even with
+  permission, because the read itself is the problem: the values end up in a transcript. Structure
+  comes from `.env.example` or `lane keys <path>`, which lists names and never values. Denial is the
+  default: `cp .env /tmp/x && cat /tmp/x` is the whole attack, so copying and linking are refused
+  too.
+- **Default branches are protected.** Pushing to `main`, `master` or `develop` needs a marker you
+  can see — `ALLOW_DEFAULT_BRANCH_PUSH=1 git push …`. Remotes may never be added, changed or
+  removed. Destructive `gh` calls (`repo delete`, writing `gh api`) are refused outright.
+- **Memory is never written silently.** Claude drafts it, then asks which of four scopes it belongs
+  in, chosen by *how long it stays true*: `pref` (always), `cross` (every repo), `repo` (that repo,
+  after this ships) or `lane` (only while this work is live). Left alone, everything becomes a
+  permanent global preference, and within a month the system is full of things that were true once.
+- **The control plane is edited from the root.** A lane cannot change the scripts or the rules that
+  constrain it.
+- **Commits are proposed, not made.** And new branches start from the default branch, not from
+  whatever happened to be checked out.
 
-`docs/rules.md` explains each one and why. `lane doctor` checks the rules are actually in force,
-and fails loudly if the guard has stopped refusing.
+## The commands
+
+```
+lane status     where everything stands        lane board    the same thing in a browser
+lane brief      catch up on one piece of work  lane audit    branches that look finished or stale
+lane run/gh     run something in one repo without leaving the lane
+lane ref        attach outside code or docs    lane note     write something worth remembering
+lane merge      two pieces of work turned out to be one
+lane import     adopt past Claude conversations
+lane doctor     check the safety rules are working
+lane help       the full list
+```
+
+Every command also exists as its own executable — `lane-start`, `lane-run`, `lane-memory` — so they
+run from any directory with no `cd`. Full reference in [`docs/commands.md`](docs/commands.md).
+
+## Using it without Claude
+
+Nothing above requires an AI. `lane start`, `lane status`, `lane brief`, `lane board` and the rest
+are a perfectly ordinary multi-repo worktree manager, and plenty of the value — one clone per repo,
+a folder per piece of work, a resume note you wrote to yourself — has nothing to do with a model.
+The hooks simply do not fire when Claude is not the one running.
 
 ## Documentation
 
-- [`docs/concepts.md`](docs/concepts.md) — the five words the whole system is built from. Start here.
-- [`docs/rules.md`](docs/rules.md) — every refusal, and the failure behind it.
-- [`docs/board.md`](docs/board.md) — the web board.
+| | |
+|---|---|
+| [`docs/concepts.md`](docs/concepts.md) | the five words the whole system is built from — **start here** |
+| [`docs/rules.md`](docs/rules.md) | every refusal, and the failure behind it |
+| [`docs/commands.md`](docs/commands.md) | the full command reference |
+| [`docs/board.md`](docs/board.md) | the web board |
+
+Each folder has its own README explaining what lives there:
+[`scripts/`](scripts/README.md) · [`scripts/hooks/`](scripts/hooks/README.md) ·
+[`scripts/board/`](scripts/board/README.md) · [`registry/`](registry/README.md) ·
+[`memory/`](memory/README.md) · [`knowledge/`](knowledge/README.md) ·
+[`.claude/`](.claude/README.md)
+
+## What your clone becomes
+
+The folder you clone *is* your control plane. After `lane init` it is no longer just a copy of this
+repository: `registry/` fills up with your repos and lanes, `memory/` and `knowledge/` with what
+Claude has learned about your work, and `CLAUDE.md` is generated with your name in it. Those are
+yours to commit — and if you want them backed up, point the clone at a private remote of your own.
+
+That means `git status` is dirty right after setup, by design. It also means taking an update from
+upstream is a `git pull` that may want a merge, most often in `.claude/settings.json`. Nothing in
+`repos/` or `lanes/` is ever committed: they are machine state, gitignored, and rebuildable from the
+registry.
+
+## Status and contributing
+
+Lane is used daily by its author and is stable for that use. It is early software: the layout on
+disk is settled, the command names are settled, and the guard has a real test suite — but expect
+rough edges outside the paths that get walked every day.
+
+Issues and pull requests are welcome. If you change `scripts/hooks/guard.py`, run
+`bash scripts/hooks/test-guard.sh` (it needs a configured workspace; `lane doctor` is the check that
+always works) and add a case for whatever you changed. A rule with no test is a rule that will
+quietly stop working.
 
 ## License
 

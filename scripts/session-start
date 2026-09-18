@@ -75,7 +75,7 @@ PY
     if [ -n "$wts" ]; then for w in $wts; do echo "  - continue in existing lane '$w' → EnterWorktree path=$LANES/$w/$repo  (status: $(lane_get "$w" status); note: $(sed -n '/^## Resume note/,/^## Log/p' "$(lane_file "$w")" | sed '1d;$d' | grep -v '^$' | head -1 | cut -c1-120))"; done; fi
     echo "  - start a NEW lane for it → ask for a short id (ticket key or slug), then EnterWorktree name=<id>/$repo, then write its Goal from this conversation"
     echo "  - read-only: just answer questions, no worktree"
-    echo "Recommend one and WAIT for his answer. Even if his message is a concrete request, do not enter or create a worktree until he has chosen."
+    echo "Recommend one and WAIT for their answer. Even if their message is a concrete request, do not enter or create a worktree until they have chosen."
   fi
   echo
 fi
@@ -118,6 +118,6 @@ Dispatcher instructions (details in CLAUDE.md "Dispatcher mode"):
 - Add repo to lane: scripts/lane-add. New repo under management: scripts/repo-add. Old chats: scripts/sessions <repo>,
   then hand over `claude --resume <session-id>` (any folder); they cannot be switched into mid-session.
 - Leave: scripts/lane-park <id> "<note>" then ExitWorktree keep.
-- If asked what he can do, show the menu below verbatim.
+- If asked what they can do, show the menu below verbatim.
 TXT
 "$AD/scripts/menu"

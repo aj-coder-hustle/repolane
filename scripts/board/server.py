@@ -396,12 +396,12 @@ def mem_meta(path):
 
 def memory_tree():
     scopes = []
-    cross = [mem_meta(f) for f in sorted(glob.glob(f"{MEM}/*.md")) if os.path.basename(f) != "MEMORY.md"]
+    cross = [mem_meta(f) for f in sorted(glob.glob(f"{MEM}/*.md")) if os.path.basename(f) not in ("MEMORY.md", "README.md")]
     scopes.append({"id": "cross", "label": "cross-repo", "hint": "true in every repo, forever", "files": [c for c in cross if c]})
     sh_ = shorts()
     for d in sorted(os.listdir(MEM)):
         if not os.path.isdir(f"{MEM}/{d}"): continue
-        fl = [mem_meta(f) for f in sorted(glob.glob(f"{MEM}/{d}/*.md")) if os.path.basename(f) != "MEMORY.md"]
+        fl = [mem_meta(f) for f in sorted(glob.glob(f"{MEM}/{d}/*.md")) if os.path.basename(f) not in ("MEMORY.md", "README.md")]
         scopes.append({"id": f"repo:{d}", "label": sh_.get(d, d), "repo": d, "hint": d, "files": [c for c in fl if c]})
     pref = f"{KNOW}/preferences.md"
     scopes.append({"id": "pref", "label": "preferences", "hint": "how Claude works with you",
@@ -412,7 +412,7 @@ def memory_tree():
     scopes.append({"id": "drafts", "label": "pending drafts", "hint": "waiting for a scope", "files": [d for d in drafts if d]})
     dups = {}
     for f in glob.glob(f"{MEM}/**/*.md", recursive=True):
-        if os.path.basename(f) != "MEMORY.md": dups.setdefault(os.path.basename(f), []).append(os.path.relpath(f, AD))
+        if os.path.basename(f) not in ("MEMORY.md", "README.md"): dups.setdefault(os.path.basename(f), []).append(os.path.relpath(f, AD))
     findings = []
     for f in lane_files():
         w = parse_ws(f"{LANES_DIR}/{f}")

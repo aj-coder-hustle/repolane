@@ -51,14 +51,14 @@ EOT
     case "$scope" in
       repo) [ -d "$REPOS/$repo" ] || die "unknown repo '$repo'"; dst="$AD/memory/$repo/$slug.md"; idx="$AD/memory/$repo/MEMORY.md";;
       cross) dst="$AD/memory/$slug.md"; idx="$AD/memory/MEMORY.md";;
-      lane) wsid="${repo:-$(python3 -c "import os;p=os.path.realpath('$PWD');w='$LANES/';print(p[len(w):].split('/')[0] if p.startswith(w) else '')")}"
-          [ -n "$wsid" ] && [ -f "$(lane_file "$wsid")" ] || die "usage: lane-memory file <slug> lane <lane-id>"
+      lane) laneid="${repo:-$(python3 -c "import os;p=os.path.realpath('$PWD');w='$LANES/';print(p[len(w):].split('/')[0] if p.startswith(w) else '')")}"
+          [ -n "$laneid" ] && [ -f "$(lane_file "$laneid")" ] || die "usage: lane-memory file <slug> lane <lane-id>"
           dst=""; idx="";;
       pref) dst=""; idx="";;
       *) die "usage: lane-memory file <slug> repo <repo> | cross | pref | lane [<id>]";;
     esac
     if [ "$scope" = lane ]; then
-      python3 - "$src" "$(lane_file "$wsid")" <<'PY'
+      python3 - "$src" "$(lane_file "$laneid")" <<'PY'
 import sys,re,datetime
 src,dst=sys.argv[1:]; t=open(src).read()
 body=t.split("---",2)[2].strip() if t.startswith("---") else t.strip()
@@ -140,7 +140,7 @@ PY
 import sys,os,re,glob
 ad,scope=sys.argv[1:]
 def rebuild(folder,label):
-    files=sorted(f for f in glob.glob(f"{folder}/*.md") if os.path.basename(f)!="MEMORY.md")
+    files=sorted(f for f in glob.glob(f"{folder}/*.md") if os.path.basename(f) not in ("MEMORY.md","README.md"))
     lines=[]
     for f in files:
         t=open(f).read()
@@ -168,7 +168,7 @@ CROSS=re.compile(r"\b(always|never|every repo|all repos|any repo|in every|house 
 print("memories in a repo folder that read like they apply everywhere:")
 n=0
 for f in sorted(glob.glob(f"{ad}/memory/*/*.md")):
-    if os.path.basename(f)=="MEMORY.md": continue
+    if os.path.basename(f) in ("MEMORY.md","README.md"): continue
     t=open(f).read(); ty=(re.search(r"type: *(\w+)",t) or [None,""])[1]
     d=(re.search(r"^description: *(.+)$",t,re.M) or [None,""])[1].strip().strip('"')
     if ty in ("feedback","user") and CROSS.search(d+t[:600]):
@@ -176,7 +176,7 @@ for f in sorted(glob.glob(f"{ad}/memory/*/*.md")):
 print(f"  ({n} to review — move one with: lane-memory audit is read-only; decide with {owner}, then move the file and run lane-memory index)")
 dups={}
 for f in glob.glob(f"{ad}/memory/**/*.md",recursive=True):
-    if os.path.basename(f)=="MEMORY.md": continue
+    if os.path.basename(f) in ("MEMORY.md","README.md"): continue
     dups.setdefault(os.path.basename(f),[]).append(os.path.relpath(f,ad))
 d2={k:v for k,v in dups.items() if len(v)>1}
 if d2:

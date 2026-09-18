@@ -68,8 +68,8 @@ def derive(priv):
                 rest = re.sub(r"https?://[^/]+/", "", u).split("/")
                 if rest: add(rest[0], "a remote org", split=False)
 
-    wsd = os.path.join(priv, "registry", "lanes")
-    for root, _, files in os.walk(wsd):
+    lanedir = os.path.join(priv, "registry", "lanes")
+    for root, _, files in os.walk(lanedir):
         for f in files:
             if f.endswith(".md"):
                 add(f[:-3], "a lane id")
