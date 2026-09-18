@@ -7,7 +7,7 @@ thing that refuses.
 |---|---|
 | `guard.py` | the whole dispatcher — one file, no dependencies |
 | `guard-check` | is it healthy? compiles it, fires nine named probes, checks every lane is wired (`lane doctor`; `-v` also runs the suite) |
-| `test-guard.sh` | 163 cases covering every rule |
+| `test-guard.sh` | 179 cases covering every rule, against a throwaway control plane it builds itself |
 
 ## How it is wired
 

@@ -125,8 +125,9 @@ It also *adds* context rather than only removing options: the first time a sessi
 it injects that repo's own `CLAUDE.md` and rules list, and the first prompt in a lane carries the
 memory index for every repo in scope.
 
-`lane doctor` compiles it and fires a known-denied probe at it, so you find out when the rules stop
-being enforced. There is a 163-case suite in `scripts/hooks/test-guard.sh`.
+`lane doctor` compiles it and fires nine named probes at it — eight that must be refused and one
+ordinary command that must not — so you find out when the rules stop being enforced. Behind that
+there is a 179-case suite in `scripts/hooks/test-guard.sh`, which `lane doctor -v` runs.
 
 ### 3. The board
 
@@ -227,8 +228,8 @@ disk is settled, the command names are settled, and the guard has a real test su
 rough edges outside the paths that get walked every day.
 
 Issues and pull requests are welcome. If you change `scripts/hooks/guard.py`, run
-`bash scripts/hooks/test-guard.sh` (it needs a configured workspace; `lane doctor` is the check that
-always works) and add a case for whatever you changed. A rule with no test is a rule that will
+`bash scripts/hooks/test-guard.sh` (it builds its own throwaway control plane, so it runs anywhere
+and never touches your lanes) and add a case for whatever you changed. A rule with no test is a rule that will
 quietly stop working.
 
 ## License
