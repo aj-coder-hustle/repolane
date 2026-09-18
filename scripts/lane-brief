@@ -6,7 +6,7 @@ id="${1:-}"; [ -z "$id" ] && id=$(python3 -c "import os;p=os.path.realpath('$PWD
 f=$(lane_file "$id")
 echo "━━ $id  [$(lane_get "$id" status)]  ticket: $(lane_get "$id" ticket)  updated: $(lane_get "$id" updated)"
 echo "GOAL"; sed -n '/^## Goal/,/^## Resume note/p' "$f" | sed '1d;$d' | grep -v '^$' | sed 's/^/  /'
-echo "RESUME NOTE"; sed -n '/^## Resume note/,/^## Log/p' "$f" | sed '1d;$d' | grep -v '^$' | sed 's/^/  /'
+echo "RESUME NOTE"; sed -n '/^## Resume note/,/^## /{/^## Resume note/d;/^## /d;p;}' "$f" | grep -v '^$' | sed 's/^/  /'
 while read -r repo branch; do d="$LANES/$id/$repo"
   echo "REPO $repo @ $branch"
   if [ -d "$d" ]; then

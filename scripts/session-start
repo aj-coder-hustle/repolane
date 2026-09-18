@@ -72,7 +72,7 @@ PY
   else
     echo
     echo "YOUR FIRST MESSAGE, before answering anything else, must say which repo this is and offer these choices:"
-    if [ -n "$wts" ]; then for w in $wts; do echo "  - continue in existing lane '$w' → EnterWorktree path=$LANES/$w/$repo  (status: $(lane_get "$w" status); note: $(sed -n '/^## Resume note/,/^## Log/p' "$(lane_file "$w")" | sed '1d;$d' | grep -v '^$' | head -1 | cut -c1-120))"; done; fi
+    if [ -n "$wts" ]; then for w in $wts; do echo "  - continue in existing lane '$w' → EnterWorktree path=$LANES/$w/$repo  (status: $(lane_get "$w" status); note: $(sed -n '/^## Resume note/,/^## /{/^## Resume note/d;/^## /d;p;}' "$(lane_file "$w")" | grep -v '^$' | head -1 | cut -c1-120))"; done; fi
     echo "  - start a NEW lane for it → ask for a short id (ticket key or slug), then EnterWorktree name=<id>/$repo, then write its Goal from this conversation"
     echo "  - read-only: just answer questions, no worktree"
     echo "Recommend one and WAIT for their answer. Even if their message is a concrete request, do not enter or create a worktree until they have chosen."
@@ -101,7 +101,7 @@ for f in "$LANES_DIR"/*.md; do [ -f "$f" ] || continue; id=$(basename "$f" .md)
     else line="$line · $r/$branch (no worktree yet)"; fi
   done < <(lane_repos "$id")
   echo "$line"
-  note=$(sed -n '/^## Resume note/,/^## Log/p' "$f" | sed '1d;$d' | grep -v '^$' | head -1 | cut -c1-160)
+  note=$(sed -n '/^## Resume note/,/^## /{/^## Resume note/d;/^## /d;p;}' "$f" | grep -v '^$' | head -1 | cut -c1-160)
   [ -n "$note" ] && echo "    $note"
 done
 echo

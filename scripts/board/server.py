@@ -67,11 +67,13 @@ def parse_ws(path):
     repos = [{"repo": m.group(1), "branch": m.group(2), "base": m.group(3)}
              for m in re.finditer(r"^  - repo: (\S+)\n    branch: (\S+)\n(?:    base: (\S+))?", head, re.M)]
     refs = [dict(path=m.group(1), **dict(re.findall(r"    (\w+): (.*)", m.group(2)))) for m in re.finditer(r"^  - path: (.+)\n((?:    .*\n?)*)", head, re.M)]
-    sect = lambda name, nxt: (re.search(rf"## {name}\n(.*?)(?=\n## {nxt}|\Z)", t, re.S) or [None, ""])[1].strip()
+    # Stop at the NEXT heading of any kind, not at one named heading: the resume note is
+    # followed by ## Findings, and reading through to ## Log swallowed it.
+    sect = lambda name, nxt=None: (re.search(rf"## {name}\n(.*?)(?=\n## |\Z)", t, re.S) or [None, ""])[1].strip()
     findings = (re.search(r"## Findings\n(.*?)(?=\n## |\Z)", t, re.S) or [None, ""])[1].strip()
     return {"id": os.path.basename(path)[:-3], "status": g("status"), "ticket": g("ticket"), "updated": g("updated"),
-            "repos": repos, "refs": refs, "findings": findings, "goal": sect("Goal", "Resume note"),
-            "note": re.sub(r"^_(\d{4}-\d{2}-\d{2})_:\s*", r"\1 — ", sect("Resume note", "Log"), flags=re.M)}
+            "repos": repos, "refs": refs, "findings": findings, "goal": sect("Goal"),
+            "note": re.sub(r"^_(\d{4}-\d{2}-\d{2})_:\s*", r"\1 — ", sect("Resume note"), flags=re.M)}
 
 def repo_state(path):
     if not os.path.exists(f"{path}/.git"): return {"exists": False}
