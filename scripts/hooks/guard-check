@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# Is the guard healthy? Exits non-zero and explains if not. Used by status-all and before edits.
+# Is the guard healthy, AND is it actually wired into every session? Exits non-zero and
+# explains if not. Used by status-all and by `lane doctor`.
+#
+# Two different claims, both checked here:
+#   1. guard.py compiles and still refuses what it should.
+#   2. every lane and worktree still points at it. A session whose settings.local.json
+#      lost its hooks is unguarded even though guard.py is perfectly healthy.
 G="$(dirname "$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$0")")/guard.py"
 if ! python3 -m py_compile "$G" 2>"${TMPDIR:-/tmp}/guard-syntax.$$.txt"; then
   echo "!! scripts/hooks/guard.py does not compile — EVERY rule is currently off:"
@@ -10,5 +16,62 @@ AD="$(dirname "$(dirname "$(dirname "$G")")")"
 probe='{"hook_event_name":"PreToolUse","tool_name":"EnterWorktree","cwd":"'"$AD"'","tool_input":{}}'
 out=$(printf '%s' "$probe" | python3 "$G" 2>&1) || true
 echo "$out" | grep -q '"permissionDecision": "deny"' || { echo "!! guard.py compiles but is not enforcing — a known-denied probe came back as: ${out:-nothing}"; exit 1; }
-echo "the guard compiles and still refuses what it should"
+
+# Is it in force where it matters?
+bad=$(python3 - "$AD" <<'PY'
+import json, os, sys
+ad = sys.argv[1]
+# The root config refers to the guard through $CLAUDE_PROJECT_DIR while the
+# generated per-lane ones use an absolute path, so match on the suffix.
+guard = "scripts/hooks/guard.py"
+problems = []
+
+def check(path, label):
+    if not os.path.exists(path):
+        problems.append(f"{label}: no .claude/settings.local.json — run `lane resume` to rewrite it")
+        return
+    try:
+        d = json.load(open(path))
+    except Exception as e:
+        problems.append(f"{label}: settings.local.json is not valid JSON ({e.__class__.__name__})")
+        return
+    hooks = d.get("hooks") or {}
+    wired = any(guard in (h.get("command") or "")
+                for arr in hooks.values() for m in arr for h in m.get("hooks", []))
+    if not wired:
+        problems.append(f"{label}: hooks do not point at guard.py — this session is UNGUARDED")
+
+lanes = f"{ad}/lanes"
+if os.path.isdir(lanes):
+    for w in sorted(os.listdir(lanes)):
+        d = f"{lanes}/{w}"
+        if not os.path.isdir(d):
+            continue
+        check(f"{d}/.claude/settings.local.json", f"lanes/{w}")
+        for r in sorted(os.listdir(d)):
+            rp = f"{d}/{r}"
+            if os.path.exists(f"{rp}/.git"):
+                check(f"{rp}/.claude/settings.local.json", f"lanes/{w}/{r}")
+
+root = f"{ad}/.claude/settings.json"
+if os.path.exists(root):
+    try:
+        d = json.load(open(root))
+        hooks = d.get("hooks") or {}
+        if not any(guard in (h.get("command") or "")
+                   for arr in hooks.values() for m in arr for h in m.get("hooks", [])):
+            problems.append("the control plane root: hooks do not point at guard.py")
+    except Exception:
+        problems.append("the control plane root: .claude/settings.json is not valid JSON")
+
+print("\n".join(problems))
+PY
+)
+if [ -n "$bad" ]; then
+  echo "!! the guard is healthy but NOT in force everywhere:"
+  printf '%s\n' "$bad" | sed 's/^/     /'
+  echo "   fix with: lane resume <id>   (rewrites the guard for that lane)"
+  exit 1
+fi
+echo "the guard compiles, still refuses what it should, and is wired into every lane"
 exit 0

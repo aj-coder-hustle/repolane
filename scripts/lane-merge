@@ -206,12 +206,17 @@ for t in (tb, ta):
         entries.setdefault(m.group(1), (m.group(2), m.group(3) or ""))
 lines = "".join(f"  - repo: {r}\n    branch: {NEWBR or br}\n" + (f"    base: {base}\n" if base else "")
                 for r, (br, base) in entries.items())
-head = re.sub(r"repos:\n(?:  - repo: .*\n(?:    .*\n)*)*", "repos:\n" + lines, head, count=1)
 refs, have = [], set()
 for t in (tb, ta):
     for m in re.finditer(r"^  - path: (.+)\n((?:    .*\n)*)", t, re.M):
         if m.group(1) not in have: have.add(m.group(1)); refs.append(m.group(0))
-head = re.sub(r"\nrefs:\n(?:  - path: .*\n(?:    .*\n)*)*", "\n", head)
+# Rebuild the frontmatter rather than splicing it. The old version ran two overlapping
+# regexes over the same text — one for repos:, one for refs: — and a continuation line
+# from the refs block could survive inside the repos block as a stray `mode: read`,
+# quietly marking a repo you were committing to as read-only.
+scalars = [l for l in head.split("\n")
+           if l.strip() and not l.startswith("  ") and not l.rstrip().endswith(":")]
+head = "\n".join(scalars).rstrip("\n") + "\nrepos:\n" + lines
 if refs: head = head.rstrip("\n") + "\nrefs:\n" + "".join(refs).rstrip("\n") + "\n"
 out = re.sub(r"^updated: .*$", f"updated: {d}", head, flags=re.M) + "\n---\n" + rest
 open(f"{WSDIR}/{TARGET}.md", "w").write(out)

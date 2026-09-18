@@ -143,7 +143,9 @@ each story.
 
 - **A session stays in its lane.** It cannot read another lane, the mirrors, or anything outside the
   control plane. Need something from outside? `lane ref <id> add <path>` attaches it once, and it is
-  readable at `lanes/<id>/refs/<name>` — read-only unless you pass `--rw`.
+  readable at `lanes/<id>/refs/<name>`. A reference is read-only to a Claude session — the hook
+  refuses writes through it unless you pass `--rw`. On disk it is a symlink, so your own editor can
+  still write to it.
 - **Nobody enters a repo.** The session sits at the lane root. `lane run <repo> <cmd>`,
   `lane gh <repo> <args>`, `git -C <repo>` and editing `<repo>/file` all work without moving, and a
   `cd` into a repo is refused — in Claude Code a `cd` moves the session itself, so one `cd` for

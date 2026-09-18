@@ -2,8 +2,18 @@
 # lane-brief [id]  — everything you need to pick a lane back up, no model involved.
 source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
 id="${1:-}"; [ -z "$id" ] && id=$(python3 -c "import os;p=os.path.realpath('$PWD');w='$LANES/';print(p[len(w):].split('/')[0] if p.startswith(w) else '')")
-[ -n "$id" ] && [ -f "$(lane_file "$id")" ] || die "usage: lane-brief <id>  (or run inside lanes/<id>/…)"
+[ -n "$id" ] || die "usage: lane-brief <id>  (or run inside lanes/<id>/…)"
 f=$(lane_file "$id")
+# A finished lane is archived, not deleted — being able to read it back is the point of
+# keeping it. Fall back to the archive, and say plainly when there is no such lane.
+if [ ! -f "$f" ]; then
+  if [ -f "$LANES_DIR/done/$id.md" ]; then
+    f="$LANES_DIR/done/$id.md"
+    echo "(finished lane — archived in registry/lanes/done/)"
+  else
+    die "no lane '$id'. Active lanes: $(ls "$LANES_DIR" 2>/dev/null | sed 's/\.md$//' | grep -v '^done$' | tr '\n' ' ')"
+  fi
+fi
 echo "━━ $id  [$(lane_get "$id" status)]  ticket: $(lane_get "$id" ticket)  updated: $(lane_get "$id" updated)"
 echo "GOAL"; sed -n '/^## Goal/,/^## Resume note/p' "$f" | sed '1d;$d' | grep -v '^$' | sed 's/^/  /'
 echo "RESUME NOTE"; sed -n '/^## Resume note/,/^## /{/^## Resume note/d;/^## /d;p;}' "$f" | grep -v '^$' | sed 's/^/  /'

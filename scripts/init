@@ -159,7 +159,7 @@ if [ -z "$TRACKER" ] && [ "$ASSUME_YES" != 1 ]; then
   echo
 fi
 
-echo "Setting up ${AD/#$HOME/\~} for $OWNER:"
+echo "Setting up $(printf %s "$AD" | sed "s#^$HOME#~#") for $OWNER:"
 
 # ---------------------------------------------------------------- 3. folders and files
 mk_dir(){ if [ -d "$1" ]; then kept "${1#$AD/}/"; else mkdir -p "$1"; made "${1#$AD/}/"; fi; }

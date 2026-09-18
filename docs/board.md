@@ -26,5 +26,7 @@ plain text.
 
 Secret files are never shown: the server drops them by path before git is asked for any content.
 
-The page is plain HTML, CSS and JavaScript with no build step, and makes no network calls beyond
-its own server.
+The page is plain HTML, CSS and JavaScript with no build step. It makes one outbound request —
+its typefaces come from Google Fonts. Delete the two `<link>` tags at the top of
+`scripts/board/index.html` if you would rather it made none; the board falls back to your system
+font and nothing else changes.

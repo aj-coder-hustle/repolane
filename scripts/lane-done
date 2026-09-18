@@ -2,6 +2,10 @@
 # lane-done <id> [--delete-branches]: requires clean, pushed worktrees. Removes worktrees, archives the file.
 source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
 id="${1:-}"; f=$(lane_file "$id"); [ -f "$f" ] || die "no lane '$id'"
+# The README tells you to work from inside the lane, so the folder being removed below is
+# very often the current directory. Step out first: otherwise every later command prints
+# `getcwd: cannot access parent directories`, which reads like something went wrong.
+cd "$AD" || exit 1
 # Check EVERY repo before touching ANY of them. Checking and removing in the same pass meant a
 # lane whose second repo had unpushed work lost the first repo's worktree before failing.
 problems=""

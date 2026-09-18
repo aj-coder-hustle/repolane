@@ -59,6 +59,18 @@ usage(){
 }
 
 cmd="${1:-}"
+
+# `lane <command> --help` used to reach the script, which read it as a lane id and answered
+# with something misleading ("no lane '--help'"). Answer it here instead, from the same one
+# line `lane help` shows, plus the script's own usage comment.
+if [ $# -ge 2 ] && { [ "$2" = "--help" ] || [ "$2" = "-h" ]; } && entry=$(map "$cmd"); then
+  printf '\n  \e[1mlane %s\e[0m — %s\n\n' "$cmd" "${entry#*|}"
+  # the usage block is the comment lines at the top of the script, before the first blank
+  sed -n '2,/^$/p' "${entry%%|*}" | sed -n '/^#/p' | sed 's/^# \{0,1\}//' | sed 's/^/  /'
+  echo
+  exit 0
+fi
+
 case "$cmd" in
   -h|--help|help) usage; exit 0 ;;
   --version|version) printf 'lane %s\n' "$(cd "$AD" && git describe --tags --always 2>/dev/null || echo dev)"; exit 0 ;;
@@ -82,6 +94,16 @@ case "$cmd" in
 esac
 
 if entry=$(map "$cmd"); then
+  # Before `lane init` there is no registry, and these commands used to fail with raw git
+  # or Python errors. Say the one thing that helps.
+  case "$cmd" in
+    init|help|"") : ;;
+    *) [ -f "$AD/registry/repos.yaml" ] || {
+         printf '\e[31mlane: this control plane is not set up yet\e[0m\n' >&2
+         echo "  run:  lane init" >&2
+         exit 2
+       } ;;
+  esac
   shift 2>/dev/null || true
   exec "${entry%%|*}" "$@"
 fi

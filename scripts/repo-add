@@ -55,6 +55,24 @@ entry=f"""  {name}:
 """ + (f"    old_paths:\n      - {frm}\n" if frm else "")
 open(p,"w").write(t.rstrip("\n")+"\n"+entry)
 PY
+# Record the checkout this repo came from, so `lane status` can report work happening out
+# there instead of in a lane, and so the guard can refuse to read it. Three readers of
+# registry/old-checkouts.json existed before this; nothing ever wrote it.
+if [ -n "$local_path" ]; then
+  python3 - "$AD/registry/old-checkouts.json" "$local_path" <<'OLDCHK'
+import json, os, subprocess, sys
+path, src = sys.argv[1:]
+def git(*a):
+    try: return subprocess.check_output(["git", "-C", src, *a], text=True, stderr=subprocess.DEVNULL).strip()
+    except Exception: return ""
+try: d = json.load(open(path))
+except Exception: d = {}
+d[os.path.realpath(src)] = {"head": git("rev-parse", "HEAD"),
+                            "dirty": len(git("status", "--porcelain").splitlines())}
+json.dump(d, open(path, "w"), indent=2, sort_keys=True)
+OLDCHK
+  echo "  recorded $local_path as an old checkout — lane status flags work that happens there"
+fi
 mkdir -p "$AD/memory/$name"; [ -f "$AD/memory/$name/MEMORY.md" ] || printf '# Memory Index — %s\n' "$name" > "$AD/memory/$name/MEMORY.md"
 slug=$(echo "$dst" | sed 's#[/_]#-#g'); proj="$HOME/.claude/projects/$slug"; mkdir -p "$proj"
 if [ -d "$proj/memory" ] && [ ! -L "$proj/memory" ]; then cp -an "$proj/memory/." "$AD/memory/$name/" && rm -rf "$proj/memory"; fi
