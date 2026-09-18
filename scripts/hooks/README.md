@@ -1,6 +1,6 @@
 # `scripts/hooks/` — the guard
 
-This is the part of Lane that makes the rules real. Everything else is convenience; this is the
+This is the part of Repolane that makes the rules real. Everything else is convenience; this is the
 thing that refuses.
 
 | | |

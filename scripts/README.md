@@ -1,6 +1,6 @@
 # `scripts/` — the commands
 
-Every Lane command is a script in here. There is no framework and no build: `../lane` is a
+Every Repolane command is a script in here. There is no framework and no build: `../lane` is a
 dispatcher that maps a one-word command to one of these files and `exec`s it.
 
 ```

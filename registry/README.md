@@ -11,7 +11,7 @@ committed to git.
 | `lanes/<id>.md` | one file per piece of work — **this is the allow-list for a session** |
 | `lanes/done/` | finished lanes, archived rather than deleted |
 | `branch-audit.md` | written by `lane audit`; branches with no upstream or unpushed work |
-| `old-checkouts.json` | optional: checkouts from before you adopted Lane, so the guard can refuse them |
+| `old-checkouts.json` | optional: checkouts from before you adopted Repolane, so the guard can refuse them |
 
 ## `config.yml`
 

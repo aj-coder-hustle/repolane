@@ -1,11 +1,13 @@
 <div align="center">
 
-# Lane
+# Repolane
 
 **One piece of work at a time, across all your repos.**
 
 A control plane for multi-repo development — and a set of rules that keeps an AI coding session
 inside the work it was actually asked to do.
+
+The command is `lane`.
 
 [Install](#install) · [How it works](#how-it-works) · [The rules](#why-it-refuses-things) · [Docs](docs/) · [MIT](LICENSE)
 
@@ -27,7 +29,7 @@ one bug and it wanders into three other repos looking for context, filling its w
 nobody asked about. It learns something useful about your deploy process and writes it down as a
 permanent global preference. It commits when you wanted to look first.
 
-Lane fixes the layout *and* the behaviour, because neither one works on its own.
+Repolane fixes the layout *and* the behaviour, because neither one works on its own.
 
 ## The idea
 
@@ -69,7 +71,7 @@ lose the first repo's worktree on the way to failing.
 ## Install
 
 ```sh
-git clone https://github.com/aj-coder-hustle/lane.git && cd lane
+git clone https://github.com/aj-coder-hustle/repolane.git && cd repolane
 ./lane install        # puts `lane` and the long-form commands on your PATH
 lane init             # asks two questions, sets the machine up
 lane add <git-url>    # or: lane add ~/path/to/a/checkout/you/already/have
@@ -83,8 +85,8 @@ lane add <git-url>    # or: lane add ~/path/to/a/checkout/you/already/have
 | **gh** | optional — pull request status and `lane gh` |
 | **Claude Code** | optional — the commands work on their own; the hooks only matter when Claude is driving |
 
-Nothing is compiled, nothing is published to a package registry, and nothing phones home. Lane is a
-folder of scripts. Tested on macOS and Linux; on Windows use WSL.
+Nothing is compiled, nothing is published to a package registry, and nothing phones home. Repolane
+is a folder of scripts. Tested on macOS and Linux; on Windows use WSL.
 
 `lane add` takes a checkout you already have, not just a URL — it adopts the existing `.git`, keeps
 the origin, and remembers where it came from so `lane import` can find the Claude conversations you
@@ -213,7 +215,7 @@ registry.
 
 ## Status and contributing
 
-Lane is used daily by its author and is stable for that use. It is early software: the layout on
+Repolane is used daily by its author and is stable for that use. It is early software: the layout on
 disk is settled, the command names are settled, and the guard has a real test suite — but expect
 rough edges outside the paths that get walked every day.
 
