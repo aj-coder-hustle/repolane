@@ -17,3 +17,5 @@ in `../lane`; `../scripts/README.md` has the checklist.
 The names do not always match the script: `lane-status` points at `status-all`, `lane-audit` at
 `branch-audit`, `lane-help` and `lane-menu` both at `menu`, `lane-init` at `init`, and
 `lane-repo-add` at `repo-add`.
+
+<!-- audit: verifying the required test check gates merges. This line is removed with the branch. -->
