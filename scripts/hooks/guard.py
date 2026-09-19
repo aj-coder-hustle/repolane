@@ -580,7 +580,9 @@ if event == "PreToolUse":
         cmdA = ti.get("command", "")
         # Every path a command names is judged the way a file tool would judge it. Mentioning another
         # lane is refused outright; a mirror is refused only when the path is what the command WRITES.
-        PATH_TOK = re.compile(r"(?<![\w-])((?:~|\$\{?WS_HOME\}?|\$\{?AD\}?|/Users/[\w.-]+|\.{0,2})?/?"
+        # HOME, not a literal /Users/..., because that is macOS-only — this rule silently never
+        # fired on Linux (home is /home/<user>) until a real Linux CI run caught it.
+        PATH_TOK = re.compile(r"(?<![\w-])((?:~|\$\{?WS_HOME\}?|\$\{?AD\}?|" + re.escape(HOME) + r"|\.{0,2})?/?"
                               r"[\w./-]*(?:lanes|repos)/[\w.-]+[\w./-]*)")
         # A path that climbs out with .. never contains "lanes/" or "repos/", so the pattern above
         # missed it entirely: ../OTHER/file was permitted while its absolute twin was refused.
@@ -629,8 +631,9 @@ if event == "PreToolUse":
                     reason = write_target_verdict(a, cur, cwd)
                     if reason: deny(event, reason)
         if not OURS:
-            # any absolute path under $HOME that is not inside lane
-            for m in re.finditer(r"(?<![\w-])((?:~|/Users/[\w.-]+)/[^\s\"';|&)]+)", cmdA):
+            # any absolute path under $HOME that is not inside lane. HOME, not /Users/..., for
+            # the same reason as PATH_TOK above — this whole check was a no-op on Linux.
+            for m in re.finditer(r"(?<![\w-])((?:~|" + re.escape(HOME) + r")/[^\s\"';|&)]+)", cmdA):
                 raw = m.group(1)
                 a = outside_ad(raw, cwd)
                 if a: deny(event, OUTSIDE_MSG.format(what=a) + ref_hint(a, cur))
