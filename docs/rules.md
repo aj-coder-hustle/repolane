@@ -126,10 +126,26 @@ built-in rules (the guard fails open by design, but it says so), and `lane docto
 each rule and the line. The same is true of a YAML error: you get the line number, not a
 traceback and not a shrug.
 
-`lane doctor` checks four things: that the guard compiles, that it still answers nine named
-probes the way it should (eight refusals and one ordinary command it must leave alone), that every
+`lane doctor` checks four things, and reports a fifth. It checks that the guard compiles, that it
+still answers nine named probes the way it should (eight refusals and one ordinary command it must leave alone), that every
 rule in your `registry/rules.yaml` still refuses its own `example` — and is refused *by that rule*,
 not incidentally by a built-in — and that every lane and worktree is still wired to it. It prints each verdict, so the answer is something
 you can check rather than something you have to believe; `lane doctor -v` also runs the full
 179-case suite. A session whose `settings.local.json` lost
 its hooks is unguarded even when the guard itself is perfectly healthy, so both are checked.
+
+It then reports one thing that is not a health check at all: **lanes nobody has touched in a
+while**. Any lane whose `updated:` date is more than `stale_days` ago (`registry/config.yml`,
+21 days by default; `0` turns it off) and that still has a worktree on disk is listed with its
+age, its size on disk, why it is still here, and the one command that clears it:
+
+| what it found | what it says | what to run |
+|---|---|---|
+| merged into its base, clean, fully pushed | `merged into its base and fully pushed` | `lane done <id>` |
+| clean and pushed, but nothing was ever committed on the branch | `nothing was ever done on it` | `lane done <id> --delete-branches` |
+| not merged, or dirty, or unpushed | what is unfinished, in as many words | `lane park <id> "<note>"` |
+
+Nothing is parked, finished or deleted for you, and no prompt appears: `lane doctor` is called
+from scripts and never blocks. It is also not a failure — a stale lane is untidy, not broken, so
+this section never changes the exit code. (`lane audit` asks the same question of the mirrors'
+branches and writes a file; this asks it of the lanes themselves, every time you run the doctor.)

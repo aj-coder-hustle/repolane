@@ -15,6 +15,8 @@
 #      refused BY that rule, not incidentally by a built-in.
 #   3. every lane and worktree still points at it. A session whose settings.local.json
 #      lost its hooks is unguarded even though guard.py is perfectly healthy.
+# And one thing that is not a claim and never fails the command: lanes nobody has touched in
+# `stale_days` (registry/config.yml, 21), each with the one command that clears it.
 set -u
 VERBOSE=0; QUIET=0
 case "${1:-}" in -v|--verbose) VERBOSE=1 ;; -q|--quiet) QUIET=1 ;; -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -203,6 +205,103 @@ fi
 if [ "${rules_broken:-0}" = 1 ]; then
   echo "   registry/rules.yaml has rules that could not be loaded (above); the guard is running without them."
   exit 1
+fi
+
+# Lanes nobody has touched in a while. Not a health failure — the guard is fine — so this never
+# changes the exit code. It is the other half of the same question `lane audit` asks of the
+# mirrors' branches, asked of the lanes themselves: what is still sitting here, and what clears it.
+# Detection is automatic; acting on it is always a command someone types.
+STALE_DAYS=$(sed -n 's/^[[:space:]]*stale_days:[[:space:]]*//p' "$AD/registry/config.yml" 2>/dev/null | head -1 | tr -d '"'"'"' ')
+case "${STALE_DAYS:-}" in ''|*[!0-9]*) STALE_DAYS=21 ;; esac
+if [ "$QUIET" = 0 ] && [ "$STALE_DAYS" != 0 ]; then
+python3 - "$AD" "$STALE_DAYS" "$VERBOSE" <<'PY'
+import datetime, os, re, subprocess, sys
+ad, days, verbose = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "1"
+today = datetime.date.today()
+
+def git(d, *a):
+    try:
+        return subprocess.run(["git", "-C", d, *a], capture_output=True, text=True).stdout.strip()
+    except Exception:
+        return ""
+
+def head(text, key):
+    m = re.search(r"^%s: *(.*)$" % key, text, re.M)
+    return m.group(1).strip() if m else ""
+
+rows = []
+lanes_dir = f"{ad}/registry/lanes"
+for f in sorted(os.listdir(lanes_dir) if os.path.isdir(lanes_dir) else []):
+    if not f.endswith(".md"):
+        continue
+    lid = f[:-3]
+    front = open(f"{lanes_dir}/{f}").read().split("\n---\n", 1)[0]
+    try:
+        age = (today - datetime.date.fromisoformat(head(front, "updated"))).days
+    except ValueError:
+        continue                      # no usable `updated:` — say nothing rather than guess
+    if age < days:
+        continue
+    repos = [(m.group(1), m.group(2), m.group(3) or "")
+             for m in re.finditer(r"^  - repo: (\S+)\n    branch: (\S+)(?:\n    base: (\S+))?", front, re.M)]
+    trees = [(r, b, base) for r, b, base in repos if os.path.isdir(f"{ad}/lanes/{lid}/{r}")]
+    if not trees:
+        continue                      # no worktree: nothing is sitting on disk, nothing to clear
+    dirty = unpushed = own = 0
+    contained = tracked = True
+    for repo, branch, base in trees:
+        d = f"{ad}/lanes/{lid}/{repo}"
+        dirty += len(git(d, "status", "--porcelain").splitlines())
+        base_ref = base or "main"
+        for cand in (f"origin/{base_ref}", base_ref):
+            if git(d, "rev-parse", "-q", "--verify", cand + "^{commit}"):
+                base_ref = cand
+                break
+        ahead_base = git(d, "rev-list", "--count", f"{base_ref}..HEAD") or "0"
+        if ahead_base != "0":
+            contained = False
+        # Work happened here if the branch is ahead of its base, or was pushed at some point.
+        if ahead_base != "0" or git(d, "rev-parse", "-q", "--verify", f"refs/remotes/origin/{branch}"):
+            own += 1
+        if git(d, "rev-parse", "-q", "--verify", "@{u}"):
+            ahead_up = git(d, "rev-list", "--count", "@{u}..HEAD") or "0"
+            if ahead_up != "0":
+                unpushed += int(ahead_up)
+                tracked = False
+        else:
+            tracked = False           # never pushed: `lane done` will refuse it, so never suggest it
+    clean = dirty == 0 and unpushed == 0
+    if contained and clean and tracked and own:
+        bucket, why, cmd = "finished", "merged into its base and fully pushed", f"lane done {lid}"
+    elif contained and clean and tracked:
+        bucket, why, cmd = "empty", "nothing was ever done on it", f"lane done {lid} --delete-branches"
+    else:
+        what = []
+        if not contained: what.append("not merged")
+        if dirty: what.append(f"{dirty} uncommitted file(s)")
+        if unpushed: what.append(f"{unpushed} unpushed commit(s)")
+        if not tracked and "not merged" not in what: what.append("never pushed")
+        bucket, why = "work", ", ".join(what)
+        cmd = f'lane park {lid} "<where it stands, next step>"'
+    size = ""
+    try:
+        du = subprocess.run(["du", "-sh", f"{ad}/lanes/{lid}"], capture_output=True, text=True, timeout=3)
+        size = du.stdout.split("\t")[0].strip()
+    except Exception:
+        pass
+    rows.append((lid, age, bucket, why, cmd, size))
+
+if rows:
+    print()
+    print(f"{len(rows)} lane(s) untouched for {days}+ days (nothing has been changed — run the command to clear one):")
+    for lid, age, bucket, why, cmd, size in rows:
+        print("  %-22s %4s  %6s  %s" % (lid, "%dd" % age, size or "-", why))
+        print("  %-22s %4s  %6s  run: %s" % ("", "", "", cmd))
+    print("  the threshold is registry/config.yml `lanes: stale_days:` (0 turns this off)")
+elif verbose:
+    print()
+    print(f"no lane has been untouched for {days}+ days (registry/config.yml `lanes: stale_days:`)")
+PY
 fi
 
 if [ "$VERBOSE" = 1 ]; then

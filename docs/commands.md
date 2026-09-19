@@ -73,8 +73,13 @@ Nothing is written silently. Claude drafts the memory, then asks whether it belo
 `lane doctor` is the one to run when something feels wrong. It compiles the guard, fires nine
 named probes at it and prints each verdict — eight that must be refused and one ordinary command
 that must not, because a guard that refuses everything is broken too — then checks that every lane
-and worktree is still wired to it. `lane doctor -v` adds every wiring location and runs the full
-179-case suite against a throwaway control plane it builds and deletes. Any failure exits non-zero.
+and worktree is still wired to it. It also lists any lane nobody has touched in `stale_days`
+(`registry/config.yml`, 21 by default) — with its size on disk and the one command that clears it:
+`lane done <id>` when the work is merged and pushed, `lane done <id> --delete-branches` when
+nothing was ever done on it, `lane park <id> "<note>"` when there is work still in there. It only
+ever tells you; clearing a lane is always a command you type. `lane doctor -v` adds every wiring
+location and runs the full 179-case suite against a throwaway control plane it builds and deletes.
+Any failure exits non-zero — a stale lane is not one, so it does not.
 
 ## Long-form names
 

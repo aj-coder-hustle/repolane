@@ -137,6 +137,10 @@ first — but on its own it only forgets the dead path. It does not bring the wo
 `lane doctor` makes three separate claims, and a failure in each has a different repair. Read which
 of the three sections it got to before it stopped.
 
+The stale-lane list at the bottom is not one of them: it never fails the command, and it is
+describing untidiness, not breakage. What each line means, and what the command it suggests will
+do, is in [rules.md](rules.md), under "Rules of your own".
+
 ### 1. The guard does not compile
 
 ```
