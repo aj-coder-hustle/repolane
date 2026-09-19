@@ -16,6 +16,7 @@ on:
   push:
     branches: [main]
     paths: [CHANGELOG.md, VERSION]
+  workflow_dispatch: # lets a human trigger this by hand, e.g. to test SITE_DEPLOY_TOKEN
 
 jobs:
   notify:
