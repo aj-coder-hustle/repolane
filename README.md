@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/icon.svg" alt="" width="64" height="64">
+
 # Repolane
 
 **One piece of work at a time, across all your repos.**
@@ -231,10 +233,20 @@ disk is settled, the command names are settled, and the guard has a real test su
 rough edges outside the paths that get walked every day. Current version is **0.1.0**
 (`lane --version`); see [`CHANGELOG.md`](CHANGELOG.md) for what changed.
 
-Issues and pull requests are welcome. If you change `scripts/hooks/guard.py`, run
-`bash scripts/hooks/test-guard.sh` (it builds its own throwaway control plane, so it runs anywhere
-and never touches your lanes) and add a case for whatever you changed. A rule with no test is a rule that will
-quietly stop working.
+Issues, discussions and pull requests are welcome, and used: if something is broken, unclear, or
+missing, filing it is the useful thing to do. [Issues](https://github.com/aj-oss-tools/repolane/issues)
+are for bugs and feature requests — there are templates asking for the command you ran and what it
+did. [Discussions](https://github.com/aj-oss-tools/repolane/discussions) are open for everything
+more open-ended: questions, "is this a bug or am I holding it wrong", and feedback on where this
+should go.
+
+Pull requests are welcome too — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to run the
+guard's test suite, what the project expects of a change, and how to propose one. The short version:
+if you change `scripts/hooks/guard.py`, run `bash scripts/hooks/test-guard.sh` (it builds its own
+throwaway control plane, so it runs anywhere and never touches your lanes) and add a case for
+whatever you changed. A rule with no test is a rule that will quietly stop working.
+
+Participation is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 

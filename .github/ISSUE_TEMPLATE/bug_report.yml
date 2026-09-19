@@ -1,0 +1,63 @@
+name: Bug report
+description: Something did not do what it says it does.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: command
+    attributes:
+      label: What you ran
+      description: The exact command, with anything private swapped for a placeholder.
+      render: shell
+      placeholder: lane start ABC-123 web api
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Paste the output. If a command failed, the whole output is more useful than the last line.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `lane --version`.
+      placeholder: lane 0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - macOS
+        - Linux
+        - Windows (WSL)
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`lane doctor` output"
+      description: Optional, but it answers most questions about whether the hooks are wired.
+      render: shell
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: >
+        If the guard refused something it should have allowed (or allowed something it should
+        have refused), say which rule you think it was — `docs/rules.md` names them.

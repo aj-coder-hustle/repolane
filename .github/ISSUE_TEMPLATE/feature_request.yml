@@ -1,0 +1,38 @@
+name: Feature request
+description: Something Repolane should do and does not.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What were you trying to do, and what got in the way? Concrete beats general — a real
+        situation you hit is more useful than a category of situations.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you think it should do
+      description: A command, a flag, a rule, a change in behaviour. A rough sketch is fine.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do today instead
+      description: If there is a workaround, knowing it helps judge how much this is worth.
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Which part
+      options:
+        - label: The commands (`lane start`, `lane done`, …)
+        - label: The guard (`scripts/hooks/guard.py` — what a Claude session may do)
+        - label: The board (`lane board`)
+        - label: The docs
+        - label: Not sure

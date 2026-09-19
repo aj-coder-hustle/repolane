@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and general feedback
+    url: https://github.com/aj-oss-tools/repolane/discussions
+    about: Discussions is open for anything more open-ended than a bug or a feature request.
+  - name: Documentation
+    url: https://repolane.dev/docs/concepts/
+    about: Concepts, the command reference, the rules and troubleshooting.
+  - name: Why it refused something
+    url: https://github.com/aj-oss-tools/repolane/blob/main/docs/rules.md
+    about: Every refusal and the failure behind it — worth a look before filing a bug.
