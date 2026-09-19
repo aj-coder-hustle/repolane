@@ -1,0 +1,19 @@
+name: Guard test suite
+
+# The one check every pull request gets. The suite builds its own throwaway control
+# plane under $HOME and runs every case against it, so it needs nothing installing
+# and touches nothing real — see scripts/hooks/test-guard.sh's own header comment.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the guard's test suite
+        run: bash scripts/hooks/test-guard.sh
