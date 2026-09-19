@@ -202,6 +202,7 @@ and in this repo:
 | [`docs/rules.md`](docs/rules.md) | every refusal, and the failure behind it |
 | [`docs/commands.md`](docs/commands.md) | the full command reference |
 | [`docs/board.md`](docs/board.md) | the web board |
+| [`docs/troubleshooting.md`](docs/troubleshooting.md) | the ways it actually breaks, and how to recover |
 
 Each folder has its own README explaining what lives there:
 [`scripts/`](scripts/README.md) · [`scripts/hooks/`](scripts/hooks/README.md) ·
@@ -217,15 +218,17 @@ Claude has learned about your work, and `CLAUDE.md` is generated with your name 
 yours to commit — and if you want them backed up, point the clone at a private remote of your own.
 
 That means `git status` is dirty right after setup, by design. It also means taking an update from
-upstream is a `git pull` that may want a merge, most often in `.claude/settings.json`. Nothing in
-`repos/` or `lanes/` is ever committed: they are machine state, gitignored, and rebuildable from the
-registry.
+upstream is a `git pull` that may want a merge, most often in `.claude/settings.json` — see
+[`docs/troubleshooting.md`](docs/troubleshooting.md#upgrading-the-clone) for how to resolve it.
+Nothing in `repos/` or `lanes/` is ever committed: they are machine state, gitignored, and
+rebuildable from the registry.
 
 ## Status and contributing
 
 Repolane is used daily by its author and is stable for that use. It is early software: the layout on
 disk is settled, the command names are settled, and the guard has a real test suite — but expect
-rough edges outside the paths that get walked every day.
+rough edges outside the paths that get walked every day. Current version is **0.1.0**
+(`lane --version`); see [`CHANGELOG.md`](CHANGELOG.md) for what changed.
 
 Issues and pull requests are welcome. If you change `scripts/hooks/guard.py`, run
 `bash scripts/hooks/test-guard.sh` (it builds its own throwaway control plane, so it runs anywhere

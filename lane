@@ -38,7 +38,7 @@ map(){ case "$1" in
   sessions)    echo "$S/sessions|past Claude conversations for a repo" ;;
   audit)       echo "$S/branch-audit|branches that look finished or stale" ;;
   workspace)   echo "$S/lane-workspace|editor workspace file for a piece of work" ;;
-  env)         echo "$S/lane-env-check|check a repo's .env is wired (names only, never values)" ;;
+  env)         echo "$S/lane-env-check|check a lane's .env files are linked in: lane env [id]" ;;
   keys)        echo "$S/lane-env-keys|list the key names in an env file, never the values" ;;
   doctor)      echo "$S/hooks/guard-check|check the safety rules are working" ;;
   import)      echo "$S/lane-import|bring past Claude conversations in (optional)" ;;
@@ -73,7 +73,24 @@ fi
 
 case "$cmd" in
   -h|--help|help) usage; exit 0 ;;
-  --version|version) printf 'lane %s\n' "$(cd "$AD" && git describe --tags --always 2>/dev/null || echo dev)"; exit 0 ;;
+  --version|version)
+    # VERSION is the one place the number is written down, so a tarball with no .git still knows
+    # what it is. The release tag is always v<VERSION>; git is asked only for the detail a file
+    # cannot carry — how far past that tag this checkout has drifted.
+    # the redirection itself is what fails when VERSION is absent, so the subshell, not tr, is
+    # what has to be silenced
+    v=$( (tr -d '[:space:]' < "$AD/VERSION") 2>/dev/null ); [ -n "$v" ] || v=unknown
+    extra=""
+    if g=$(cd "$AD" && git describe --tags --long --dirty --match 'v[0-9]*' 2>/dev/null); then
+      # v0.1.0-3-gabc1234[-dirty]: the middle field is the commit count since the tag
+      n=${g#v*-}; n=${n%%-*}
+      case "$g" in *-dirty) d=", uncommitted changes" ;; *) d="" ;; esac
+      if [ "$n" = 0 ]; then extra="$d"; else extra=" (+$n commits$d)"; fi
+    elif h=$(cd "$AD" && git rev-parse --short HEAD 2>/dev/null); then
+      # a checkout with no release tag in its history: before the first tag, or a shallow clone
+      extra=" (untagged, $h)"
+    fi
+    printf 'lane %s%s\n' "$v" "$extra"; exit 0 ;;
   install)
     dest="${2:-$HOME/.local/bin}"; mkdir -p "$dest" || exit 1
     ln -sf "$AD/lane" "$dest/lane" && echo "linked $dest/lane -> $AD/lane"
