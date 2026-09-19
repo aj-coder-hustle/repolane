@@ -1,0 +1,32 @@
+name: Rebuild the site on release-relevant changes
+
+# CHANGELOG.md and VERSION are fetched live, at build time, by the site's changelog
+# page (see repolane-site). That fetch only reflects whatever this repo's main
+# branch looks like when the site last built — so a push here that changes either
+# file needs to trigger a site rebuild, or the page goes stale until something else
+# happens to redeploy the site. This is that trigger.
+#
+# Needs SITE_DEPLOY_TOKEN: a fine-grained personal access token, scoped only to
+# aj-oss-tools/repolane-site, with Actions: write access, stored as a secret in
+# THIS repo's settings. The default GITHUB_TOKEN a workflow gets is scoped to the
+# repo it runs in and cannot dispatch a workflow in a different repo, even a
+# private one under the same account — that's a GitHub platform limit, not a
+# choice made here.
+on:
+  push:
+    branches: [main]
+    paths: [CHANGELOG.md, VERSION]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger repolane-site's deploy workflow
+        env:
+          GH_TOKEN: ${{ secrets.SITE_DEPLOY_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "SITE_DEPLOY_TOKEN is not set — see the comment at the top of this file. Skipping, not failing."
+            exit 0
+          fi
+          gh workflow run deploy.yml --repo aj-oss-tools/repolane-site

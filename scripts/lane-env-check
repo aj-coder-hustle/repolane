@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# lane-env-check [id]  — for each worktree, are all env files of its mirror present (as links)? Names only, never contents.
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+only="${1:-}"
+for w in "$LANES"/*/*/; do [ -e "$w/.git" ] || continue
+  id=$(basename "$(dirname "$w")"); r=$(basename "$w")
+  [ -n "$only" ] && [ "$only" != "$id" ] && continue
+  want=$(find "$REPOS/$r" -maxdepth 4 \( -name node_modules -o -name .git -o -name .nx -o -name dist -o -name target -o -name .venv -o -name venv \) -prune -o -type f \( -name '.env' -o -name '.env.*' -o -name '*.env' \) -print 2>/dev/null | grep -v -E '\.(example|sample|template|dist)$|\.from-clone-' | sed "s|^$REPOS/$r/||" || true)
+  total=0; ok=0; miss=""
+  for f in $want; do total=$((total+1)); if [ -e "$w$f" ]; then ok=$((ok+1)); else miss="$miss $f"; fi; done
+  printf "  %-46s %s/%s env files%s\n" "$id/$r" "$ok" "$total" "${miss:+   MISSING:$miss  (run: lane-resume $id)}"
+done

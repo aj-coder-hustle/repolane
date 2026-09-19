@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# lane-find <text> [--all]  — which lane touched this? Searches every lane for <text> across
+# four surfaces: the lane's own Goal / Resume note / Findings, branch names, commit subjects on
+# the lane's branch, and the files each branch actually changed since it left its base.
+#
+#   lane find promo          live lanes in full; finished ones counted, not listed
+#   lane find src/index.ts   the file you remember, when you cannot remember the ticket
+#   lane find promo --all    list the finished lanes too
+#
+# Read-only: nothing here writes, checks out or fetches.
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+
+all=0; q=""
+for a in "$@"; do
+  case "$a" in
+    --all) all=1 ;;
+    -h|--help) sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -*) die "unknown option '$a'  (usage: lane-find <text> [--all])" ;;
+    *) [ -z "$q" ] && q="$a" || die "one search text at a time — quote it: lane-find \"$q $a\"" ;;
+  esac
+done
+[ -n "$q" ] || die "usage: lane-find <text> [--all]"
+
+python3 - "$AD" "$q" "$all" <<'PY'
+import os, re, subprocess, sys
+
+AD, q, show_all = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
+LANES_DIR, REPOS = f"{AD}/registry/lanes", f"{AD}/repos"
+needle = q.lower()
+
+def git(repo, *args):
+    # The mirror under repos/ carries every lane branch, and reading it never needs the worktree
+    # to still exist — which is the whole point for a finished lane, whose worktrees are gone.
+    try:
+        return subprocess.run(["git", "-C", f"{REPOS}/{repo}", *args],
+                              capture_output=True, text=True, timeout=30).stdout.splitlines()
+    except Exception:
+        return []
+
+def has_rev(repo, rev):
+    return subprocess.run(["git", "-C", f"{REPOS}/{repo}", "rev-parse", "--verify", "-q", rev + "^{commit}"],
+                          capture_output=True).returncode == 0
+
+def frontmatter(text):
+    parts = text.split("---\n")
+    return parts[1] if len(parts) > 2 and text.startswith("---\n") else ""
+
+def field(fm, key):
+    m = re.search(rf"^{key}: *(.*)$", fm, re.M)
+    return m.group(1).strip() if m else ""
+
+def repos_of(fm):
+    # repo / branch / base, in frontmatter order. base may be absent on an older lane file.
+    out, cur = [], None
+    for line in fm.splitlines():
+        m = re.match(r"^  - repo: *(\S+)", line)
+        if m:
+            cur = {"repo": m.group(1), "branch": "", "base": ""}
+            out.append(cur)
+        elif cur:
+            for k in ("branch", "base"):
+                m = re.match(rf"^    {k}: *(\S+)", line)
+                if m: cur[k] = m.group(1)
+    return out
+
+def section(text, name):
+    m = re.search(rf"^## {name}\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    if not m: return []
+    lines = []
+    for l in m.group(1).splitlines():
+        l = l.strip()
+        # "(written by lane-park: …)" and friends are the template's own placeholder text, not
+        # anything this lane says. Matching them would report every unparked lane for "park".
+        if not l or l.startswith("("): continue
+        lines.append(l)
+    return lines
+
+def lane_files():
+    for d, done in ((LANES_DIR, False), (f"{LANES_DIR}/done", True)):
+        if not os.path.isdir(d): continue
+        for f in sorted(os.listdir(d)):
+            if f.endswith(".md"): yield f"{d}/{f}", f[:-3], done
+
+def clip(s, n=110):
+    return s if len(s) <= n else s[:n - 1] + "…"
+
+def show(lid, status, updated, hits):
+    print(f"\n━━ {lid}  [{status}]  updated: {updated}")
+    w = max((len(r) for _, r, _ in hits if r), default=0)
+    for label, repo, detail in hits:
+        print(f"  {label:<8} {repo.ljust(w) + '  ' if w else ''}{detail}")
+
+live, finished = [], []
+for path, lid, archived in lane_files():
+    try: text = open(path).read()
+    except OSError: continue
+    fm = frontmatter(text)
+    status = field(fm, "status") or "?"
+    hits = []
+
+    for label, name in (("goal", "Goal"), ("note", "Resume note"), ("finding", "Findings")):
+        for l in section(text, name):
+            if needle in l.lower(): hits.append((label, "", clip(l)))
+
+    for r in repos_of(fm):
+        repo, branch = r["repo"], r["branch"]
+        if not branch: continue
+        if needle in branch.lower(): hits.append(("branch", repo, branch))
+        if not os.path.isdir(f"{REPOS}/{repo}/.git") or not has_rev(repo, branch): continue
+        base = r["base"] or ""
+        if not base or not has_rev(repo, base):
+            # No usable base means no "since it diverged" to compute; the branch name still counted.
+            continue
+        rng = f"{base}..{branch}"
+        for line in git(repo, "log", "--format=%h %s", rng):
+            if needle in line.lower(): hits.append(("commit", repo, clip(line)))
+        for f in git(repo, "diff", "--name-only", f"{base}...{branch}"):
+            if needle in f.lower(): hits.append(("file", repo, f))
+
+    if hits:
+        (finished if (archived or status == "done") else live).append((field(fm, "updated"), lid, status, hits))
+
+live.sort(key=lambda x: (x[0], x[1]), reverse=True)
+
+print(f'━━ find "{q}" — {len(live)} live, {len(finished)} finished')
+for updated, lid, status, hits in live:
+    show(lid, status, updated, hits)
+
+if finished:
+    if show_all:
+        for updated, lid, status, hits in sorted(finished, key=lambda x: (x[0], x[1]), reverse=True):
+            show(lid, "done, archived", updated, hits)
+    else:
+        # Counted, not listed. In a plane where most lanes are finished, listing them all buries
+        # the one that is still live — which inverts the point of the command.
+        n = len(finished)
+        print(f"\n  + {n} finished lane{'' if n == 1 else 's'} matched — lane find \"{q}\" --all to list {'it' if n == 1 else 'them'}")
+
+if not live and not finished:
+    print("  no lane matches")
+PY

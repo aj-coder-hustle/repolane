@@ -1,0 +1,135 @@
+# Why it refuses things
+
+Every refusal here exists because the alternative went wrong. If you hit one, this page says why.
+
+## Stay in the lane you are in
+
+A session belongs to one piece of work. It cannot read other lanes, the mirrors, or anything
+outside this folder. Without this, a session asked to fix one bug quietly reads four repos, fills
+its context with unrelated code, and starts making changes nobody asked for.
+
+Need something outside? Attach it once with `lane ref` and read it at `lanes/<id>/refs/<name>`.
+The hook refuses writes through a reference unless it was attached with `--rw`. It is a symlink
+underneath, so this constrains the session, not you.
+
+## Do not enter a repo
+
+The session sits at `lanes/<id>/`, never inside `lanes/<id>/<repo>/`. Entering one makes that repo look
+like the main one, and multi-repo work degrades into single-repo work. Nothing needs it:
+`lane run <repo> <cmd>`, `lane gh <repo> <args>`, `git -C <repo>`, and editing `<repo>/file` all work
+from where you are.
+
+## The mirrors are read-only
+
+`repos/<name>` stays on its default branch and clean, because every worktree shares its object
+store. Work in a worktree.
+
+## The control plane is edited from the root
+
+Scripts, rules, the registry and memory are changed from a session started at the top, not from
+inside a lane. A lane editing the rules that constrain it is how you lose the rules.
+
+## Never read `.env` or credential files
+
+Not even when you grant permission: the read itself is the problem, because the values end up in a
+transcript. Structure is available instead, via `.env.example` or `lane keys <path>`, which lists key
+names and never values.
+
+## Pushing to a default branch needs your word
+
+`main`, `master` and `develop` are refused. When you do mean it, the command carries a marker you
+can see: `ALLOW_DEFAULT_BRANCH_PUSH=1 git push …`. Remotes may never be added, changed or removed.
+
+## Memory is never written directly
+
+Claude drafts, then asks which of the four scopes it belongs in. Left alone, everything becomes a
+permanent global preference, and within a month the system is full of things that were true once.
+
+## New branches start from the default branch
+
+Not from whatever happens to be checked out.
+
+## Ask before committing
+
+Commits are proposed, and shaped as coherent units: neither one commit per edit nor one enormous
+commit at the end.
+
+## Rules of your own
+
+The rules above ship with Repolane, because they are true of every project. The ones that are
+true only of *your* project — "never run a migration by hand, the entrypoint does it", "that
+branch deploys itself" — go in `registry/rules.yaml`. It is gitignored and stays on your machine:
+a private tool name or an internal service name has no business in a public repo.
+
+A rule can only add a refusal. There is no syntax for granting anything, and the loader has no
+path to anything but the same `deny` the built-in rules use — so a rules file can tighten this
+guard and never loosen it. Project rules are checked first, before the built-ins, because a few
+built-ins answer "allow" and stop.
+
+```yaml
+rules:
+  - id: no-manual-migrations
+    when: { tool: Bash, matches: '\balembic\s+(upgrade|downgrade)\b' }
+    deny: "entrypoint.sh applies migrations on every start. Restart the service instead."
+    ref: memory/api/migrations.md
+    example: "alembic upgrade head"
+
+  - id: no-editing-generated-schema
+    when: { tool: Edit, path: 'schema/generated/**' }
+    deny: "schema/generated/ is written by codegen. Edit the source schema and regenerate."
+    ref: docs/codegen.md
+    example: { path: "schema/generated/types.ts" }
+```
+
+| field | |
+| --- | --- |
+| `id` | how the refusal names itself, and what `lane doctor` reports |
+| `when.tool` | the tool name exactly as Claude Code spells it: `Bash`, `Edit`, `Write`, `Read`, … |
+| `when.matches` | a Python regular expression, for `Bash`. One rule has `matches` or `path`, never both |
+| `when.path` | a glob, for the file tools. Matched against the path as written and against every tail of it, so `schema/generated/**` works wherever the repo is checked out in a lane |
+| `deny` | what Claude is told. Say what to do instead, not just "no" |
+| `ref` | **required.** The file that says why. A refusal nobody can check is a refusal that gets routed around, which is the whole reason the built-in messages all cite something |
+| `example` | a case the rule must refuse. `lane doctor` feeds it through the guard on every run |
+
+Values are single-line: the parser reads a deliberately small YAML subset — `rules:`, one map
+per rule, scalars and one-line `{ … }` or an indented block under `when:`. Anything else is
+reported as an error rather than half-understood.
+
+`matches` is tested against the same normalised command segments the built-in rules are tested
+against, not against the raw string, so `echo ok && alembic upgrade head` is judged exactly as
+`alembic upgrade head` is. A rule cannot be slipped by chaining.
+
+### Worked example: a branch that deploys itself
+
+The built-in rule covers `main`, `master` and `develop`. If your CI deploys on a push to
+something else, that is a rule of yours. Mirror the marker the built-in uses, so that when you do
+mean it, the command says so in a form you can see:
+
+```yaml
+  - id: no-push-to-deploy-branch
+    when:
+      tool: Bash
+      matches: '^(?!ALLOW_DEPLOY_PUSH=1\b).*\bgit\s+push\b.*\b(deploy|release)/'
+    deny: "Pushing to a deploy/* or release/* branch ships it — CI deploys that branch on push. Ask first; if it is meant, run it with the marker: ALLOW_DEPLOY_PUSH=1 git push …"
+    ref: docs/deploys.md
+    example: "git push origin HEAD:deploy/staging"
+```
+
+`git push origin HEAD:deploy/staging` is refused; the same command behind
+`ALLOW_DEPLOY_PUSH=1` is not.
+
+### When the file is wrong
+
+A rule with no `ref`, no `deny`, an unparseable `when`, or a `matches` that is not a valid regular
+expression is not loaded — and never silently. The hook says so on stderr and carries on with the
+built-in rules (the guard fails open by design, but it says so), and `lane doctor` fails, naming
+each rule and the line. The same is true of a YAML error: you get the line number, not a
+traceback and not a shrug.
+
+`lane doctor` checks four things: that the guard compiles, that it still answers nine named
+probes the way it should (eight refusals and one ordinary command it must leave alone), that every
+rule in your `registry/rules.yaml` still refuses its own `example` — and is refused *by that rule*,
+not incidentally by a built-in — and that every lane and worktree is still wired to it. It prints each verdict, so the answer is something
+you can check rather than something you have to believe; `lane doctor -v` also runs the full
+179-case suite. A session whose `settings.local.json` lost
+its hooks is unguarded even when the guard itself is perfectly healthy, so both are checked.

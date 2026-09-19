@@ -1,0 +1,12 @@
+Repolane
+Copyright 2026 Akshant Jain. All rights reserved.
+
+This product includes software independently created and maintained by Akshant Jain.
+Original project repository: https://github.com/aj-oss-tools/repolane
+
+========================================================================
+Third-Party Dependencies & Attributions
+========================================================================
+Repolane has no third-party dependencies. It is a folder of Bash scripts and
+Python using only the standard library — there is no package manifest, and
+nothing is installed to run it beyond git, python3 and bash themselves.

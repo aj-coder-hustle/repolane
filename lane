@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# lane — the single entry point.
+#
+#   lane                 what is going on right now
+#   lane <command> …     everything else
+#   lane help            the full list
+#
+# There is nothing else to learn. Every command below is one word.
+set -u
+# Resolve through symlinks: `lane` is normally invoked via a link on your PATH, and the scripts it
+# runs live next to the real file, not next to the link.
+_self="${BASH_SOURCE[0]:-$0}"
+while [ -L "$_self" ]; do
+  _l=$(readlink "$_self")
+  case "$_l" in /*) _self="$_l" ;; *) _self="$(dirname "$_self")/$_l" ;; esac
+done
+AD="$(cd "$(dirname "$_self")" && pwd)"
+S="$AD/scripts"
+
+# command → implementation, and the one line shown in `lane help`
+map(){ case "$1" in
+  init)        echo "$S/init|set this machine up (safe to re-run)" ;;
+  add)         echo "$S/repo-add|bring a repo under management: lane add <git-url> [name]" ;;
+  start)       echo "$S/lane-start|start a piece of work: lane start <id> <repo> [<repo>…]" ;;
+  resume)      echo "$S/lane-resume|pick work back up: lane resume <id>" ;;
+  park)        echo "$S/lane-park|leave work for later: lane park <id> \"<note>\"" ;;
+  done)        echo "$S/lane-done|finish and clean up: lane done <id>" ;;
+  status)      echo "$S/status-all|where everything stands" ;;
+  brief)       echo "$S/lane-brief|catch up on one piece of work: lane brief <id>" ;;
+  board)       echo "$S/lane-board|open the board in a browser" ;;
+  with)        echo "$S/lane-add|add a repo to work already started: lane with <id> <repo>" ;;
+  run)         echo "$S/lane-run|run a command inside a repo: lane run <repo> <cmd…>" ;;
+  gh)          echo "$S/lane-gh|GitHub inside a repo: lane gh <repo> pr create" ;;
+  ref)         echo "$S/lane-ref|attach outside code or docs: lane ref <id> add <path>" ;;
+  note)        echo "$S/lane-memory|write something worth remembering" ;;
+  merge)       echo "$S/lane-merge|two pieces of work turned out to be one" ;;
+  plan)        echo "$S/lane-merge-plan|preview a merge without doing it" ;;
+  find)        echo "$S/lane-find|which lane touched this file, branch or commit: lane find <text>" ;;
+  sessions)    echo "$S/sessions|past Claude conversations for a repo" ;;
+  audit)       echo "$S/branch-audit|branches that look finished or stale" ;;
+  workspace)   echo "$S/lane-workspace|editor workspace file for a piece of work" ;;
+  env)         echo "$S/lane-env-check|check a lane's .env files are linked in: lane env [id]" ;;
+  keys)        echo "$S/lane-env-keys|list the key names in an env file, never the values" ;;
+  doctor)      echo "$S/hooks/guard-check|check the safety rules are working" ;;
+  import)      echo "$S/lane-import|bring past Claude conversations in (optional)" ;;
+  nested)      echo "$S/lane-nested|find and repair nested worktrees" ;;
+  menu)        echo "$S/menu|the long-form menu (needs bin/ on your PATH)" ;;
+  "")          echo "$S/status-all|what is going on right now" ;;
+  *)           return 1 ;;
+esac; }
+
+ORDER="init add import start resume park done status brief board find with run gh ref note merge plan sessions audit workspace env keys doctor nested"
+
+usage(){
+  printf '\n  \e[1mlane\e[0m — one piece of work at a time, across all your repos\n\n'
+  for c in $ORDER; do
+    line=$(map "$c"); printf "    \e[1m%-10s\e[0m %s\n" "$c" "${line#*|}"
+  done
+  printf '\n    %-10s %s\n\n' "install" "put lane on your PATH so it works from anywhere"
+}
+
+cmd="${1:-}"
+
+# `lane <command> --help` used to reach the script, which read it as a lane id and answered
+# with something misleading ("no lane '--help'"). Answer it here instead, from the same one
+# line `lane help` shows, plus the script's own usage comment.
+if [ $# -ge 2 ] && { [ "$2" = "--help" ] || [ "$2" = "-h" ]; } && entry=$(map "$cmd"); then
+  printf '\n  \e[1mlane %s\e[0m — %s\n\n' "$cmd" "${entry#*|}"
+  # the usage block is the comment lines at the top of the script, before the first blank
+  sed -n '2,/^$/p' "${entry%%|*}" | sed -n '/^#/p' | sed 's/^# \{0,1\}//' | sed 's/^/  /'
+  echo
+  exit 0
+fi
+
+case "$cmd" in
+  -h|--help|help) usage; exit 0 ;;
+  --version|version)
+    # VERSION is the one place the number is written down, so a tarball with no .git still knows
+    # what it is. The release tag is always v<VERSION>; git is asked only for the detail a file
+    # cannot carry — how far past that tag this checkout has drifted.
+    # the redirection itself is what fails when VERSION is absent, so the subshell, not tr, is
+    # what has to be silenced
+    v=$( (tr -d '[:space:]' < "$AD/VERSION") 2>/dev/null ); [ -n "$v" ] || v=unknown
+    extra=""
+    if g=$(cd "$AD" && git describe --tags --long --dirty --match 'v[0-9]*' 2>/dev/null); then
+      # v0.1.0-3-gabc1234[-dirty]: the middle field is the commit count since the tag
+      n=${g#v*-}; n=${n%%-*}
+      case "$g" in *-dirty) d=", uncommitted changes" ;; *) d="" ;; esac
+      if [ "$n" = 0 ]; then extra="$d"; else extra=" (+$n commits$d)"; fi
+    elif h=$(cd "$AD" && git rev-parse --short HEAD 2>/dev/null); then
+      # a checkout with no release tag in its history: before the first tag, or a shallow clone
+      extra=" (untagged, $h)"
+    fi
+    printf 'lane %s%s\n' "$v" "$extra"; exit 0 ;;
+  install)
+    dest="${2:-$HOME/.local/bin}"; mkdir -p "$dest" || exit 1
+    ln -sf "$AD/lane" "$dest/lane" && echo "linked $dest/lane -> $AD/lane"
+    # The long-form names (lane-start, lane-run, lane-memory …) are what the guard messages, the
+    # agent prompts and the docs tell you to type. Link them too, or every one of those
+    # instructions is a command not found.
+    # bin/ holds the commands and its own README. Runnable-and-not-a-directory is the question
+    # that matters; matching on the name would go stale the next time a command is added.
+    is_cmd(){ [ -x "$1" ] && [ ! -d "$1" ]; }
+    # An earlier version linked every entry in bin/, so bin/README.md ended up on the PATH as a
+    # command. Take such a link back out — but only when it points into a Repolane bin/ (one with
+    # lane-start in it) at something that is not a command, never at an unrelated file the user
+    # keeps in the same folder.
+    for l in "$dest"/*; do
+      [ -L "$l" ] || continue
+      b=$(basename "$l"); [ "$b" = lane ] && continue
+      d=$(dirname "$(readlink "$l")")
+      [ -e "$d/lane-start" ] || continue
+      is_cmd "$d/$b" && continue
+      rm -f "$l" && echo "unlinked $dest/$b — it is not a command; an older install put it on your PATH"
+    done
+    n=0
+    for f in "$AD"/bin/*; do
+      is_cmd "$f" || continue
+      b=$(basename "$f"); [ "$b" = lane ] && continue
+      ln -sf "$f" "$dest/$b" && n=$((n+1))
+    done
+    echo "linked $n long-form commands (lane-start, lane-run, …) into $dest"
+    case ":$PATH:" in
+      *":$dest:"*) echo "ready — run: lane" ;;
+      *) echo; echo "add this to your shell profile, then open a new terminal:"; echo "  export PATH=\"$dest:\$PATH\"" ;;
+    esac; exit 0 ;;
+esac
+
+if entry=$(map "$cmd"); then
+  # Before `lane init` there is no registry, and these commands used to fail with raw git
+  # or Python errors. Say the one thing that helps.
+  case "$cmd" in
+    init|help|"") : ;;
+    *) [ -f "$AD/registry/repos.yaml" ] || {
+         printf '\e[31mlane: this control plane is not set up yet\e[0m\n' >&2
+         echo "  run:  lane init" >&2
+         exit 2
+       } ;;
+  esac
+  shift 2>/dev/null || true
+  exec "${entry%%|*}" "$@"
+fi
+
+# not a command — say so, and guess what was meant
+printf '\e[31mlane: no command named "%s"\e[0m\n' "$cmd" >&2
+near=$(for c in $ORDER; do [[ $c == *"$cmd"* ]] && echo "  lane $c"; done)
+[ -n "$near" ] && { echo "did you mean:" >&2; echo "$near" >&2; }
+echo >&2; echo "  lane help   for the full list" >&2
+exit 2

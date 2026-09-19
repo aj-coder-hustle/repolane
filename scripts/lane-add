@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# lane-add <id> <repo>[:<branch>] ...  — add repos to an existing lane (same as lane-start on an existing id)
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+[ -f "$(lane_file "${1:-}")" ] || die "no lane '${1:-}' — use lane-start for a new one"
+exec "$AD/scripts/lane-start" --add "$@"

@@ -1,0 +1,83 @@
+# Commands
+
+Every command is one word after `lane`. Run `lane` on its own for the board of what is going on
+right now, and `lane help` for this list in your terminal.
+
+## Setting up
+
+| | |
+|---|---|
+| `lane init` | set this machine up (safe to re-run) |
+| `lane add <git-url\|path> [name]` | bring a repo under management |
+| `lane import` | bring past Claude conversations in (optional) |
+
+## Doing the work
+
+| | |
+|---|---|
+| `lane start <id> <repo> [<repo>…]` | start a piece of work: a branch and a worktree in each repo |
+| `lane resume <id>` | pick work back up |
+| `lane park <id> "<note>"` | leave work for later, with a note to your future self |
+| `lane done <id>` | finish and clean up — refuses while anything is dirty or unpushed |
+| `lane with <id> <repo>` | add a repo to work already started |
+
+A lane id may carry a branch and a base per repo: `lane start ABC-123 web:feature/login api@release-2`
+checks out `feature/login` in `web` and branches `api` from `release-2`.
+
+## Seeing where things stand
+
+| | |
+|---|---|
+| `lane status` | every repo, every lane, and any drift |
+| `lane brief <id>` | catch up on one piece of work |
+| `lane board` | the same thing in a browser |
+| `lane audit` | branches that look finished or stale |
+| `lane sessions <repo\|id>` | past Claude conversations |
+| `lane find <text>` | which lane touched this file, branch, commit or note |
+
+## Reaching into a repo
+
+You never `cd` into one. These work from wherever you are:
+
+| | |
+|---|---|
+| `lane run <repo> <cmd…>` | run a command inside one repo of the lane |
+| `lane gh <repo> <args…>` | the GitHub CLI, scoped to one repo |
+| `lane ref <id> add <path>` | attach outside code or docs as a read-only reference |
+
+`lane run` and `lane gh` are a shortcut, not a bypass: whatever they carry is judged by exactly the
+same rules as a command you typed yourself.
+
+## Memory and knowledge
+
+| | |
+|---|---|
+| `lane note` | write something worth remembering — you pick the scope |
+
+Nothing is written silently. Claude drafts the memory, then asks whether it belongs in `pref`,
+`cross`, `repo` or `lane`, chosen by how long it stays true. See
+[Concepts](concepts.md).
+
+## Housekeeping
+
+| | |
+|---|---|
+| `lane merge <a> <b>` | two pieces of work turned out to be one |
+| `lane plan <a> <b>` | preview that merge without doing it |
+| `lane doctor` | check the safety rules are actually working |
+| `lane nested` | find and repair nested worktrees |
+| `lane workspace` | write an editor workspace file for the active lanes |
+| `lane env [id]` | check each worktree's `.env` files are linked in — names only, never values |
+| `lane keys <path>` | list the key names in an env file, never the values |
+
+`lane doctor` is the one to run when something feels wrong. It compiles the guard, fires nine
+named probes at it and prints each verdict — eight that must be refused and one ordinary command
+that must not, because a guard that refuses everything is broken too — then checks that every lane
+and worktree is still wired to it. `lane doctor -v` adds every wiring location and runs the full
+179-case suite against a throwaway control plane it builds and deletes. Any failure exits non-zero.
+
+## Long-form names
+
+Every command also exists as its own executable — `lane-start`, `lane-run`, `lane-memory` and so
+on — linked onto your `PATH` by `lane install`. They are what the guard messages and the agent
+prompts tell you to type, and they run from any directory without a `cd`.

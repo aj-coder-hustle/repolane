@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+# init — set up a fresh copy of this control plane on a machine.
+#
+# Two ways in, same result:
+#   a person:  lane init                      (asks what it needs)
+#   Claude:    lane init --owner "Sam" --yes  (asks nothing)
+#
+# Safe to run again. It never overwrites something you already have; it fills in what is missing
+# and tells you which is which.
+set -u
+
+# Resolve through symlinks: `lane` is normally invoked via a link on your PATH, and the scripts it
+# runs live next to the real file, not next to the link.
+_self="${BASH_SOURCE[0]:-$0}"
+while [ -L "$_self" ]; do
+  _l=$(readlink "$_self")
+  case "$_l" in /*) _self="$_l" ;; *) _self="$(dirname "$_self")/$_l" ;; esac
+done
+AD="$(cd "$(dirname "$_self")/.." && pwd)"
+CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
+OWNER=""; TRACKER=""; ASSUME_YES=0; CHECK_ONLY=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --owner) OWNER="${2:-}"; shift 2 ;;
+    --tracker) TRACKER="${2:-}"; shift 2 ;;   # full URL with {key}, or: jira:<site> linear:<lane> github:<owner/repo>
+    --jira)    TRACKER="https://${2:-}.atlassian.net/browse/{key}"; shift 2 ;;
+    --linear)  TRACKER="https://linear.app/${2:-}/issue/{key}"; shift 2 ;;
+    --github)  TRACKER="https://github.com/${2:-}/issues/{key}"; shift 2 ;;
+    --claude-home) CLAUDE_HOME="${2:-}"; shift 2 ;;
+    --yes|-y) ASSUME_YES=1; shift ;;
+    --check) CHECK_ONLY=1; shift ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "init: unknown option $1" >&2; exit 2 ;;
+  esac
+done
+
+# pick <prompt> <option>…  — arrow keys and Enter, with a typed fallback when there is no terminal
+# (piped input, CI, or Claude running this). Everything it draws goes to stderr; only the chosen
+# number comes back on stdout.
+pick(){
+  local prompt="$1"; shift
+  local n=$#; local i cur=0 key rest
+  local opts=("$@")
+  # stdout is a pipe here (pick is always called inside $(...)), so the terminal test is on
+  # stdin, where keys come from, and stderr, where the list is drawn.
+  if [ ! -t 0 ] || [ ! -t 2 ]; then          # no terminal: ask for a number instead
+    printf '%s\n' "$prompt" >&2
+    i=0; while [ $i -lt $n ]; do printf '  %d  %s\n' $((i+1)) "${opts[$i]}" >&2; i=$((i+1)); done
+    printf '  choose [1-%d]: ' "$n" >&2
+    read -r key || true
+    case "$key" in ''|*[!0-9]*) key=$n ;; esac
+    [ "$key" -ge 1 ] 2>/dev/null && [ "$key" -le $n ] || key=$n
+    printf '%s' "$key"; return
+  fi
+  printf '%s\n' "$prompt" >&2
+  printf '\033[?25l' >&2                      # hide the cursor while we redraw
+  trap 'printf "\033[?25h" >&2' EXIT INT TERM
+  local drawn=0
+  while :; do
+    [ $drawn = 1 ] && printf '\033[%dA' "$n" >&2
+    i=0
+    while [ $i -lt $n ]; do
+      if [ $i = $cur ]; then printf '\033[2K  \033[36m❯\033[0m \033[1m%s\033[0m\n' "${opts[$i]}" >&2
+      else                   printf '\033[2K    \033[2m%s\033[0m\n' "${opts[$i]}" >&2; fi
+      i=$((i+1))
+    done
+    drawn=1
+    IFS= read -rsn1 key || break
+    if [ "$key" = $'\033' ]; then read -rsn2 -t 1 rest 2>/dev/null; key="$key$rest"; fi
+    case "$key" in
+      $'\033[A'|k) cur=$(( (cur - 1 + n) % n )) ;;
+      $'\033[B'|j) cur=$(( (cur + 1) % n )) ;;
+      '') break ;;                            # Enter
+      q) cur=$((n-1)); break ;;
+    esac
+  done
+  printf '\033[?25h' >&2
+  trap - EXIT INT TERM
+  printf '%s' "$((cur+1))"
+}
+
+G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; D=$'\e[2m'; N=$'\e[0m'
+ok(){   printf "  ${G}ok${N}    %s\n" "$1"; }
+made(){ printf "  ${G}made${N}  %s\n" "$1"; }
+kept(){ printf "  ${D}kept${N}  %s ${D}(already there)${N}\n" "$1"; }
+warn(){ printf "  ${Y}warn${N}  %s\n" "$1"; }
+bad(){  printf "  ${R}miss${N}  %s\n" "$1"; }
+
+# ---------------------------------------------------------------- 1. prerequisites
+missing=0
+echo "Checking what this needs:"
+for c in git python3; do
+  if command -v "$c" >/dev/null 2>&1; then ok "$c"; else bad "$c — required"; missing=1; fi
+done
+if command -v gh >/dev/null 2>&1; then
+  if gh auth status >/dev/null 2>&1; then ok "gh (signed in)"
+  else warn "gh is installed but not signed in — run: gh auth login"; fi
+else
+  warn "gh not found — pull request status and lane-gh will not work"
+fi
+command -v claude >/dev/null 2>&1 && ok "claude" || warn "claude not found — the hooks only matter inside Claude Code"
+[ "$missing" = 0 ] || { echo; echo "Install the missing tools above, then run this again."; exit 1; }
+[ "$CHECK_ONLY" = 1 ] && exit 0
+echo
+
+# ---------------------------------------------------------------- 2. who owns this
+if [ -z "$OWNER" ] && [ -f "$AD/registry/config.yml" ]; then
+  OWNER=$(sed -n 's/^[[:space:]]*name:[[:space:]]*//p' "$AD/registry/config.yml" | head -1 | tr -d '"'"'")
+  [ "$OWNER" = "YOUR NAME" ] && OWNER=""
+fi
+if [ -z "$TRACKER" ] && [ -f "$AD/registry/config.yml" ]; then
+  TRACKER=$(sed -n 's/^[[:space:]]*url:[[:space:]]*//p' "$AD/registry/config.yml" | head -1 | tr -d '"'"'")
+fi
+if [ -z "$OWNER" ]; then
+  if [ "$ASSUME_YES" = 1 ]; then
+    OWNER=$(git config user.name 2>/dev/null) || true
+    [ -n "$OWNER" ] || OWNER="the user"
+  else
+    d=$(git config user.name 2>/dev/null || echo "")
+    printf "Your name, used when the hooks address you%s: " "${d:+ [$d]}"
+    read -r ans || true
+    OWNER="${ans:-$d}"
+    [ -n "$OWNER" ] || OWNER="the user"
+  fi
+fi
+
+# Pick a tracker from a list rather than asking someone to remember a URL shape. We know what
+# each one looks like; all we need from them is their org or workspace name.
+if [ -z "$TRACKER" ] && [ "$ASSUME_YES" != 1 ]; then
+  echo
+  pick=$(pick "Where do ticket keys like ABC-123 link to?" \
+    "Jira" "Linear" "GitHub Issues" "Azure DevOps" "something else — you paste the link" \
+    "nothing — show keys as plain text")
+  # the prompt goes to stderr so that $(ask ...) captures only what was typed
+  ask(){ printf "  %s: " "$1" >&2; read -r REPLY_ || true; printf '%s' "$REPLY_"; }
+  case "${pick:-6}" in
+    1) s=$(ask "your Jira site (the bit before .atlassian.net)")
+       s=${s#https://}; s=${s%%.atlassian.net*}; s=${s%%/*}
+       [ -n "$s" ] && TRACKER="https://$s.atlassian.net/browse/{key}" ;;
+    2) s=$(ask "your Linear workspace")
+       s=${s#https://linear.app/}; s=${s%%/*}
+       [ -n "$s" ] && TRACKER="https://linear.app/$s/issue/{key}" ;;
+    3) s=$(ask "owner/repo, for example acme/web")
+       s=${s#https://github.com/}; s=${s%/}
+       [ -n "$s" ] && TRACKER="https://github.com/$s/issues/{key}" ;;
+    4) s=$(ask "org/project, for example acme/platform")
+       s=${s#https://dev.azure.com/}; s=${s%/}
+       [ -n "$s" ] && TRACKER="https://dev.azure.com/$s/_workitems/edit/{key}" ;;
+    5) TRACKER=$(ask "the link, with {key} where the key goes") ;;
+    *) TRACKER="" ;;
+  esac
+  if [ -n "$TRACKER" ]; then
+    case "$TRACKER" in *"{key}"*) : ;; *) TRACKER="${TRACKER%/}/{key}" ;; esac
+    echo "  ABC-123 will link to ${TRACKER/\{key\}/ABC-123}"
+  else
+    echo "  ticket keys will show as plain text"
+  fi
+  echo
+fi
+
+echo "Setting up $(printf %s "$AD" | sed "s#^$HOME#~#") for $OWNER:"
+
+# ---------------------------------------------------------------- 3. folders and files
+mk_dir(){ if [ -d "$1" ]; then kept "${1#$AD/}/"; else mkdir -p "$1"; made "${1#$AD/}/"; fi; }
+for d in registry/lanes memory knowledge/conventions knowledge/domains repos lanes .cache; do
+  mk_dir "$AD/$d"
+done
+
+if [ -f "$AD/registry/config.yml" ] && ! grep -q "YOUR NAME" "$AD/registry/config.yml"; then
+  kept "registry/config.yml"
+else
+  cat > "$AD/registry/config.yml" <<EOT
+# Who this control plane belongs to, and how it should talk to them.
+# This is the only file that needs editing when someone else adopts the system.
+owner:
+  # Named in hook messages and agent prompts: "ask <name> first", "work <name> asked for".
+  name: $OWNER
+
+tracker:
+  # Where a ticket key links to. {key} is replaced with the key found in a lane's
+  # \`ticket:\` field, or at the front of its id (ABC-123-short-name -> ABC-123).
+  # Blank means keys show as plain text instead of links.
+  url: $TRACKER
+EOT
+  made "registry/config.yml"
+fi
+
+if [ -f "$AD/registry/repos.yaml" ]; then
+  kept "registry/repos.yaml"
+else
+  cat > "$AD/registry/repos.yaml" <<'EOT'
+# Source of truth for what this control plane manages. Paths are relative to this folder.
+# Add repos with:  lane add <git-url> [name]
+# status: active | archived
+repos:
+EOT
+  made "registry/repos.yaml"
+fi
+
+if [ -f "$AD/memory/MEMORY.md" ]; then
+  kept "memory/MEMORY.md"
+else
+  printf '# Memory Index — applies everywhere (per-repo memory lives in the subfolders)\n' > "$AD/memory/MEMORY.md"
+  made "memory/MEMORY.md"
+fi
+
+if [ -f "$AD/knowledge/preferences.md" ]; then
+  kept "knowledge/preferences.md"
+elif [ -f "$AD/knowledge/preferences.md.example" ]; then
+  cp "$AD/knowledge/preferences.md.example" "$AD/knowledge/preferences.md"; made "knowledge/preferences.md"
+fi
+
+if [ -f "$AD/CLAUDE.md" ]; then
+  kept "CLAUDE.md"
+elif [ -f "$AD/CLAUDE.md.template" ]; then
+  sed "s/the owner/$OWNER/g" "$AD/CLAUDE.md.template" > "$AD/CLAUDE.md"; made "CLAUDE.md"
+fi
+
+# ---------------------------------------------------------------- 4. memory where Claude looks for it
+# Claude Code keeps per-project data under ~/.claude/projects/<path with / and _ turned into ->.
+# Pointing that folder's `memory` at ours keeps memory versioned here instead of in a cache.
+slug=$(printf '%s' "$AD" | sed 's#[/_]#-#g')
+proj="$CLAUDE_HOME/projects/$slug"
+mkdir -p "$proj"
+if [ -L "$proj/memory" ]; then
+  kept "memory linked into Claude's project folder"
+elif [ -d "$proj/memory" ]; then
+  cp -an "$proj/memory/." "$AD/memory/" 2>/dev/null
+  rm -rf "$proj/memory" && ln -s "$AD/memory" "$proj/memory"
+  made "memory linked (existing notes moved in, nothing lost)"
+else
+  ln -s "$AD/memory" "$proj/memory"; made "memory linked into Claude's project folder"
+fi
+
+# ---------------------------------------------------------------- 4b. the status line
+# The script ships, but nothing points Claude Code at it. Add it only if neither settings file
+# already does, so an existing setup is never disturbed.
+if ! grep -qs statusLine "$AD/.claude/settings.json" "$AD/.claude/settings.local.json" 2>/dev/null; then
+  if python3 "$AD/scripts/wire-statusline.py" "$AD/.claude/settings.json" 2>/dev/null; then
+    made "status line wired into .claude/settings.json"
+  else
+    warn "could not wire the status line — add it by hand if you want it"
+  fi
+else
+  kept "status line"
+fi
+
+# ---------------------------------------------------------------- 5. is the wiring intact
+echo
+echo "Checking the wiring:"
+[ -f "$AD/.claude/settings.json" ] && ok "hooks configured (.claude/settings.json)" \
+                                   || bad ".claude/settings.json is missing — hooks will not run"
+if [ -x "$AD/bin/guard-check" ] && "$AD/bin/guard-check" >/dev/null 2>&1; then
+  ok "the guard compiles and still refuses what it should"
+else
+  bad "the guard is not working — run: bash scripts/hooks/test-guard.sh"
+fi
+
+# ---------------------------------------------------------------- 6. what to do next
+echo
+n=$(sed -n 's/^  \([a-zA-Z0-9._-]*\):$/\1/p' "$AD/registry/repos.yaml" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$n" = 0 ]; then
+  cat <<EOT
+Nothing is managed yet. Bring your first repo in:
+
+  lane add https://github.com/<org>/<repo>.git
+
+Then start a piece of work:
+
+  lane start <id> <repo>
+  claude
+EOT
+else
+  echo "$n repo(s) managed.  lane status  to see where things stand,  lane board  for the browser view."
+fi

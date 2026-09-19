@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# lane-nested [--fix]   find worktrees that sit inside another worktree (a broken state), optionally remove them.
+# Removing a worktree never deletes its branch. Refuses to remove one with uncommitted work.
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+FIX=""; [ "${1:-}" = "--fix" ] && FIX=1
+found=0
+for r in "$REPOS"/*/; do
+  repo=$(basename "$r")
+  paths=$(git -C "$r" worktree list --porcelain | sed -n 's/^worktree //p')
+  for inner in $paths; do
+    for outer in $paths; do
+      [ "$inner" = "$outer" ] && continue
+      case "$inner" in
+        "$outer"/*)
+          found=1
+          br=$(git -C "$inner" branch --show-current 2>/dev/null || echo "?")
+          n=$(git -C "$inner" status --porcelain 2>/dev/null | wc -l | tr -d " ")
+          echo "  ${inner#$AD/}  [$br]  inside  ${outer#$AD/}  ($n uncommitted)"
+          if [ -n "$FIX" ]; then
+            if [ "$n" != 0 ]; then echo "     skipped — it has uncommitted work; deal with that first"
+            else git -C "$r" worktree remove "$inner" && echo "     removed (branch $br untouched)"; fi
+          fi;;
+      esac
+    done
+  done
+done
+[ "$found" = 0 ] && exit 0
+[ -z "$FIX" ] && exit 0
+git -C "$REPOS/$repo" worktree prune 2>/dev/null || true
+exit 0

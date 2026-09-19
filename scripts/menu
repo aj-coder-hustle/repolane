@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+cat <<'TXT'
+Everything below is a script — instant, no model call. In a terminal type it as is; inside Claude prefix it with "! ".
+
+  lane status                          repos, lanes, drift
+  lane brief [id]                      goal, resume note, commits, dirty files, memory index
+  lane board                           the same in a browser: changes, diffs, commit, history
+  lane find <text> [--all]             which lane touched this file, branch, commit or note
+
+  lane init                            set this machine up (safe to re-run)
+  lane add <git-url|path> [name]       bring a repo under management
+  lane import [--list]                 past Claude conversations → a lane (optional)
+
+  lane start <id> <repo>[:<branch>][@<base>]   new lane; base is the default branch unless given
+  lane with <id> <repo>[:<branch>][@<base>]    add a repo to a lane already started
+  lane resume <id>                     recreate worktrees, refresh guards, print state
+  lane park <id> "<note>"              commit work in progress, save the note, mark it parked
+  lane done <id> [--delete-branches]   verify everything is pushed, remove worktrees, archive the file
+
+  lane run <repo> <cmd…>               run a command in one repo without leaving the lane
+  lane gh  <repo> <gh args…>           the same for gh (pr, checks, workflow run)
+  lane ref <id> add <path> [note]      attach outside code or docs as a read-only reference
+  lane note draft|file|list|index      save a memory — you choose: lane | repo <r> | cross | pref
+
+  lane plan <a> <b> [opts]             preview a merge of two lanes — read-only, safe anywhere
+  lane merge <a> <b> [--as <id>] --run do it (from the control plane root only)
+
+  lane sessions <repo|id> [n]          old conversations → then: claude --resume <session-id>
+  lane audit [repo]                    local-only branches → registry/branch-audit.md
+  lane env <repo>                      check a repo's environment file is wired (names only)
+  lane keys [path]                     variable NAMES in an env file (values are never readable)
+  lane nested [--fix]                  find (and remove) a worktree nested inside another
+  lane workspace                       regenerate editor workspace files
+  lane doctor                          check the safety rules are working
+
+Ask Claude only for judgment: "brief me" (reads spec + memory), "which of these branches can go",
+"start X on the backend" — it picks the id, runs lane start, enters the worktree, writes the Goal.
+It says which script it ran, every time.
+
+Rules: work only in lanes/, mirrors in repos/ stay clean, park before switching, nothing pushed or
+deleted unasked. See docs/rules.md for why each one exists.
+TXT

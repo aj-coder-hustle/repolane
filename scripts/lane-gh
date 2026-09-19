@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# lane-gh <repo> <gh args...>    run gh against one repo of the current lane, without moving
+#   lane-gh api pr create --fill
+#   lane-gh web pr checks
+#   lane-gh api workflow run ci.yml -f branch=release
+# Same rules apply as if you had typed the gh command yourself.
+D="$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")"
+repo="${1:-}"; shift || true
+[ -n "$repo" ] && [ $# -gt 0 ] || { echo "usage: lane-gh <repo> <gh args...>" >&2; exit 1; }
+exec "$D/lane-run" "$repo" gh "$@"

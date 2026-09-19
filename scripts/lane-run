@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# lane-run <repo> <command...>     run a command inside one repo of the current lane, without moving
+# lane-run --lane <id> <repo> <cmd…> same, naming the lane (needed from the dispatcher root)
+#
+#   lane-run api mvn -q -DskipTests package
+#   lane-run web yarn build
+#   lane-run api gh pr create --fill          (or use lane-gh api pr create --fill)
+#
+# <repo> is the repo name or its short alias from registry/repos.yaml (for example api, web).
+# The session does not move: no cd, no EnterWorktree. Output and exit code are the command's own.
+# The command you pass is judged by the same rules as any other command — this is a shortcut, not a bypass.
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+
+lane=""
+if [ "${1:-}" = "--lane" ]; then lane="${2:-}"; shift 2; fi
+[ -n "$lane" ] || lane=$(python3 -c "import os;p=os.path.realpath('$PWD');w='$LANES/';print(p[len(w):].split('/')[0] if p.startswith(w) else '')")
+[ -n "$lane" ] || die "not inside a lane — name one: lane-run --lane <id> <repo> <command...>"
+[ -f "$(lane_file "$lane")" ] || die "no lane '$lane'"
+
+want="${1:-}"; shift || true
+[ -n "$want" ] && [ $# -gt 0 ] || die "usage: lane-run [--lane <id>] <repo> <command...>"
+
+# resolve the repo: exact name, or a short alias from the registry, case-insensitively
+repo=""
+while read -r r _b; do
+  short=$(python3 -c "
+import re,sys
+t=open('$AD/registry/repos.yaml').read()
+m=re.search(r'^  '+re.escape(sys.argv[1])+r':\n(?:    .*\n)*?    short: (\S+)', t, re.M)
+print(m.group(1) if m else '')" "$r")
+  if [ "$r" = "$want" ] || [ "$(printf '%s' "${short:-}" | tr A-Z a-z)" = "$(printf '%s' "$want" | tr A-Z a-z)" ]; then repo="$r"; break; fi
+done < <(lane_repos "$lane")
+[ -n "$repo" ] || die "'$want' is not a repo of $lane. It has: $(lane_repos "$lane" | cut -d' ' -f1 | tr '\n' ' ')"
+
+d="$LANES/$lane/$repo"
+[ -d "$d" ] || die "$lane/$repo has no worktree — run: lane-resume $lane"
+cd "$d" || die "cannot enter $d"
+exec "$@"

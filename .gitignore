@@ -1,0 +1,14 @@
+# nested checkouts and worktrees are tracked by registry/, not by git
+/repos/
+/lanes/
+/.cache/
+.DS_Store
+*.local.json
+__pycache__/
+/lane.code-workspace
+
+# Project rules and the repo list are per-machine and often name private services, tools and
+# repos. registry/config.yml and registry/README.md are tracked; the .yaml files are not, and
+# must never be — this repo is public, and a fork inherits whatever is committed here.
+/registry/*.yaml
+/registry/rules.yaml

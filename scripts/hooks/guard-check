@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+# lane doctor — is the guard healthy, AND is it actually wired into every session?
+#
+#   guard-check         the evidence, in a few lines
+#   guard-check -v      the same, plus every wiring location and the full 179-case suite
+#   guard-check -q      one line, for the top of the board; the detail appears only if it fails
+#
+# Exits non-zero, and explains, if any of it is wrong. Used by status-all and by `lane doctor`.
+#
+# Three different claims, all checked here:
+#   1. guard.py compiles.
+#   2. it still answers a set of named probes the way it is supposed to — including one probe
+#      that must NOT be refused, because a guard that denies everything is also broken.
+#   2b. every project rule in registry/rules.yaml still refuses its own `example:` — and is
+#      refused BY that rule, not incidentally by a built-in.
+#   3. every lane and worktree still points at it. A session whose settings.local.json
+#      lost its hooks is unguarded even though guard.py is perfectly healthy.
+set -u
+VERBOSE=0; QUIET=0
+case "${1:-}" in -v|--verbose) VERBOSE=1 ;; -q|--quiet) QUIET=1 ;; -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  "") : ;; *) echo "guard-check: unknown option '$1' (try -v)" >&2; exit 2 ;; esac
+
+G="$(dirname "$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$0")")/guard.py"
+if ! python3 -m py_compile "$G" 2>"${TMPDIR:-/tmp}/guard-syntax.$$.txt"; then
+  echo "!! scripts/hooks/guard.py does not compile — EVERY rule is currently off:"
+  sed 's/^/     /' "${TMPDIR:-/tmp}/guard-syntax.$$.txt"
+  exit 1
+fi
+AD="$(dirname "$(dirname "$(dirname "$G")")")"
+
+# The probes. Every one runs from the control plane root, so they answer the same on a fresh
+# clone as on a machine full of lanes — the claim has to be checkable before there is any work.
+ask(){ printf '%s' "$1" | python3 "$G" 2>&1 | grep -o '"permissionDecision": "[a-z]*"' | cut -d'"' -f4; }
+bash_probe(){ printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"%s","tool_input":{"command":%s}}' \
+  "$AD" "$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$1")"; }
+file_probe(){ printf '{"hook_event_name":"PreToolUse","tool_name":"%s","cwd":"%s","tool_input":{"file_path":"%s"}}' "$1" "$AD" "$2"; }
+
+n=0; good=0; lines=""
+probe(){ # probe <want> <label> <json>
+  n=$((n+1)); got=$(ask "$3"); got=${got:-pass}
+  if [ "$got" = "$1" ]; then good=$((good+1)); lines="$lines$(printf '  %-6s %s' "$got" "$2")
+"
+  else lines="$lines$(printf '  !! %-4s %s — wanted %s' "$got" "$2" "$1")
+"; fi
+}
+probe deny "a worktree with no lane named"        '{"hook_event_name":"PreToolUse","tool_name":"EnterWorktree","cwd":"'"$AD"'","tool_input":{}}'
+probe deny "a worktree opened by path"            '{"hook_event_name":"PreToolUse","tool_name":"EnterWorktree","cwd":"'"$AD"'","tool_input":{"path":"'"$AD"'/lanes/x"}}'
+probe deny "reading a .env"                       "$(file_probe Read "$AD/repos/any/.env")"
+probe deny "a shell that prints a .env"           "$(bash_probe 'cat .env')"
+probe deny "writing a memory directly"            "$(file_probe Write "$AD/memory/brand-new-thing.md")"
+probe deny "a push to a default branch"           "$(bash_probe 'git push origin main')"
+probe deny "rewriting the git remote"             "$(bash_probe 'git remote set-url origin git@github.com:x/y.git')"
+probe deny "deleting a GitHub repo"               "$(bash_probe 'gh repo delete your-org/api --yes')"
+# The control: ordinary work must come back undecided. A guard that refuses everything passes
+# every deny probe above and is still useless.
+probe pass "ordinary work is untouched"           "$(bash_probe 'git status')"
+
+# Project rules (registry/rules.yaml), if this plane has any. The built-in probes above cover
+# the rules that ship; nothing covers a project's own, and a rule that quietly stopped matching —
+# after a refactor of the matching internals, say — is a rule that is gone. So every rule states
+# an `example:` it must refuse, and every example is fed through the guard here, the same way.
+# The guard itself is asked what it loaded, so the doctor and the hook cannot disagree.
+RULES_ERR="${TMPDIR:-/tmp}/guard-rules.$$.txt"
+RULES_JSON=$(python3 "$G" --rules 2>"$RULES_ERR") || :
+if [ -s "$RULES_ERR" ]; then
+  echo "!! registry/rules.yaml — these project rules are NOT being enforced:"
+  sed 's/^!! //; s/^/     /' "$RULES_ERR"
+  echo "     the built-in rules are unaffected; fix the file and run lane doctor again"
+  rules_broken=1
+fi
+rm -f "$RULES_ERR"
+rn=0; rgood=0; rlines=""
+while IFS="$(printf '\t')" read -r rid rjson; do
+  [ -n "$rid" ] || continue
+  rn=$((rn+1))
+  if [ "$rjson" = "@noexample" ]; then
+    rlines="$rlines$(printf "  !! %-4s project rule '%s' — no example: for the doctor to check it with" "skip" "$rid")
+"
+    continue
+  fi
+  reason=$(printf '%s' "$rjson" | python3 "$G" 2>&1 | python3 -c 'import json,sys
+try: d = json.load(sys.stdin)["hookSpecificOutput"]
+except Exception: print("pass|"); raise SystemExit
+print(d.get("permissionDecision","pass") + "|" + (d.get("permissionDecisionReason") or ""))')
+  got=${reason%%|*}; why=${reason#*|}
+  # deny alone is not enough: a built-in could be refusing the example for its own reasons while
+  # the project rule itself no longer matches anything. The refusal has to name the rule.
+  case "$got|$why" in
+    deny*"'$rid'"*) rgood=$((rgood+1)); rlines="$rlines$(printf "  %-6s project rule '%s'" "deny" "$rid")
+" ;;
+    deny*) rlines="$rlines$(printf "  !! %-4s project rule '%s' — refused, but by a built-in, not by this rule" "deny" "$rid")
+" ;;
+    *) rlines="$rlines$(printf "  !! %-4s project rule '%s' — its own example was NOT refused" "$got" "$rid")
+" ;;
+  esac
+done <<EOF
+$(python3 - "$AD" "${RULES_JSON:-[]}" <<'PYR'
+import json, sys
+# The rules arrive as an argument, not on stdin: this script is itself read from stdin.
+ad = sys.argv[1]
+try: rules = json.loads(sys.argv[2]) or []
+except Exception: rules = []
+for r in rules:
+    rid = r.get("id", "?")
+    ex, tool = r.get("example"), r["when"]["tool"]
+    if not ex:
+        print(rid + "\t@noexample"); continue
+    if isinstance(ex, str):
+        ti = {"command": ex} if tool == "Bash" else {"file_path": ex}
+    else:
+        ti = {"command": ex.get("command", "")} if tool == "Bash" else {"file_path": ex.get("path", "")}
+    print(rid + "\t" + json.dumps({"hook_event_name": "PreToolUse", "tool_name": tool, "cwd": ad, "tool_input": ti}))
+PYR
+)
+EOF
+if [ "$rn" -gt 0 ]; then n=$((n+rn)); good=$((good+rgood)); lines="$lines$rlines"; fi
+
+if [ "$good" -eq "$n" ]; then
+  [ "$QUIET" = 1 ] || { echo "guard.py compiles; $good/$n probes answered as they should$( [ "$rn" -gt 0 ] && printf " (%s of them this plane's own project rules)" "$rn" ):"; printf '%s' "$lines"; }
+else
+  echo "!! guard.py compiles but is not enforcing — $good/$n probes answered as they should:"; printf '%s' "$lines"
+fi
+[ "$good" -eq "$n" ] || { echo "   a rule that stopped refusing is a rule that is gone. Check recent edits to scripts/hooks/guard.py (the built-ins) or registry/rules.yaml (this plane's own)."; exit 1; }
+
+# Is it in force where it matters?
+report=$(python3 - "$AD" "$VERBOSE" <<'PY'
+import json, os, sys
+ad, verbose = sys.argv[1], sys.argv[2] == "1"
+# The root config refers to the guard through $CLAUDE_PROJECT_DIR while the
+# generated per-lane ones use an absolute path, so match on the suffix.
+guard = "scripts/hooks/guard.py"
+problems, seen = [], []
+
+def check(path, label):
+    seen.append(label)
+    if not os.path.exists(path):
+        problems.append(f"{label}: no .claude/settings.local.json — run `lane resume` to rewrite it")
+        return
+    try:
+        d = json.load(open(path))
+    except Exception as e:
+        problems.append(f"{label}: settings.local.json is not valid JSON ({e.__class__.__name__})")
+        return
+    hooks = d.get("hooks") or {}
+    wired = any(guard in (h.get("command") or "")
+                for arr in hooks.values() for m in arr for h in m.get("hooks", []))
+    if not wired:
+        problems.append(f"{label}: hooks do not point at guard.py — this session is UNGUARDED")
+
+lanes = f"{ad}/lanes"
+n_lanes = n_trees = 0
+if os.path.isdir(lanes):
+    for w in sorted(os.listdir(lanes)):
+        d = f"{lanes}/{w}"
+        if not os.path.isdir(d):
+            continue
+        n_lanes += 1
+        check(f"{d}/.claude/settings.local.json", f"lanes/{w}")
+        for r in sorted(os.listdir(d)):
+            rp = f"{d}/{r}"
+            if os.path.exists(f"{rp}/.git"):
+                n_trees += 1
+                check(f"{rp}/.claude/settings.local.json", f"lanes/{w}/{r}")
+
+root = f"{ad}/.claude/settings.json"
+if os.path.exists(root):
+    seen.append("the control plane root")
+    try:
+        d = json.load(open(root))
+        hooks = d.get("hooks") or {}
+        if not any(guard in (h.get("command") or "")
+                   for arr in hooks.values() for m in arr for h in m.get("hooks", [])):
+            problems.append("the control plane root: hooks do not point at guard.py")
+    except Exception:
+        problems.append("the control plane root: .claude/settings.json is not valid JSON")
+
+bad = {p.split(":")[0] for p in problems}
+ok = len(seen) - len(bad)
+if n_lanes:
+    print(f"@wired {ok}/{len(seen)} places point at guard.py: {n_lanes} lane(s), {n_trees} worktree(s), the root")
+else:
+    print(f"@wired no lanes yet — nothing to wire but the control plane root ({ok}/{len(seen)} ok)")
+if verbose:
+    for s in seen:
+        print("@ok   " + s) if s not in bad else None
+print("\n".join(problems))
+PY
+)
+if [ "$QUIET" = 1 ]; then
+  echo "guard: $good/$n probes answered as they should, $(printf '%s\n' "$report" | sed -n 's/^@wired //p')  —  lane doctor for the evidence"
+else
+  printf '%s\n' "$report" | sed -n 's/^@wired //p'
+fi
+[ "$VERBOSE" = 1 ] && printf '%s\n' "$report" | sed -n 's/^@ok   /  ok     /p'
+bad=$(printf '%s\n' "$report" | grep -v '^@' | sed '/^$/d')
+if [ -n "$bad" ]; then
+  echo "!! the guard is healthy but NOT in force everywhere:"
+  printf '%s\n' "$bad" | sed 's/^/     /'
+  echo "   fix with: lane resume <id>   (rewrites the guard for that lane)"
+  exit 1
+fi
+
+if [ "${rules_broken:-0}" = 1 ]; then
+  echo "   registry/rules.yaml has rules that could not be loaded (above); the guard is running without them."
+  exit 1
+fi
+
+if [ "$VERBOSE" = 1 ]; then
+  echo
+  echo "the full suite (it builds its own throwaway control plane; your lanes are not touched):"
+  bash "$(dirname "$G")/test-guard.sh" | sed 's/^/  /' || exit 1
+elif [ "$QUIET" = 0 ]; then
+  echo "179 more cases behind this:  lane doctor -v"
+fi
+exit 0
