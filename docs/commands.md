@@ -87,9 +87,14 @@ nothing was ever done on it, `lane park <id> "<note>"` when there is work still 
 lists any managed GitHub repo whose branch protection hasn't been checked with `lane sync` in
 `protection: sync_days` (`registry/config.yml`, 7 by default) — with the command to clear it. It
 only ever tells you; clearing a lane, or syncing a repo, is always a command you type — `lane sync`
-is never run for you. `lane doctor -v` adds every wiring
+is never run for you. It also checks, advisory-only like the rest of this list: whether the `lane`
+resolved on your `PATH` actually points at this checkout (`lane install` if not); whether `gh` is
+installed and authenticated (`lane sync`, `lane gh` need it); and, per active lane, whether what
+its spec file says it contains (`repo:`/`branch:` pairs) still matches what's actually checked out
+under `lanes/<id>/` on disk. `lane doctor -v` adds every wiring
 location and runs the full 184-case suite against a throwaway control plane it builds and deletes.
-Any failure exits non-zero — a stale lane, or an unsynced repo, is not one, so it does not.
+Any failure exits non-zero — a stale lane, an unsynced repo, a missing `gh`, or spec/worktree
+drift is not one, so it does not.
 
 ## Long-form names
 
