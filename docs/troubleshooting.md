@@ -463,8 +463,7 @@ can look at what is on it and decide.
 
 ## Smaller traps
 
-**`lane env` takes a lane id, not a repo name.** Given a repo name it matches nothing and prints
-nothing, which reads like a clean result. `lane env` with no argument checks every lane:
+**`lane env [id-or-repo]` accepts either.** `lane env` with no argument checks every lane:
 
 ```
 $ lane env

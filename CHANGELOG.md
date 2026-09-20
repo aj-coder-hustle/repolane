@@ -29,6 +29,10 @@ written down. Inside a git checkout it also says how far past the release tag yo
   every lane, forever — was the one scope that silently never reached a session. It now has its
   own `## preferences` section, read the same way the cross-repo and per-repo sections are.
 
+- **`lane env <repo-name>` silently checked nothing.** `lane-env-check` filtered worktrees by lane
+  id only, so `lane env <repo-name>` matched no worktree and printed nothing — a result
+  indistinguishable from "all good." It now matches against either the lane id or the repo name.
+
 ## [0.1.0] — 2026-09-18
 
 First release. Everything below was built between 2026-09-17 and 2026-09-18; there are no earlier

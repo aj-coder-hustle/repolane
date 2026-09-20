@@ -67,7 +67,7 @@ Nothing is written silently. Claude drafts the memory, then asks whether it belo
 | `lane doctor` | check the safety rules are actually working |
 | `lane nested` | find and repair nested worktrees |
 | `lane workspace` | write an editor workspace file for the active lanes |
-| `lane env [id]` | check each worktree's `.env` files are linked in — names only, never values |
+| `lane env [id-or-repo]` | check each worktree's `.env` files are linked in — names only, never values |
 | `lane keys <path>` | list the key names in an env file, never the values |
 | `lane secrets <repo> scan\|add\|list` | declare a repo's own secret/credential filenames, beyond the built-in set |
 
