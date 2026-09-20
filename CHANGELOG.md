@@ -8,6 +8,10 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.6.0] — 2026-09-20
+
 ### Added
 
 - **`scripts/local/<name>`**: any executable file there becomes a `lane <name>` subcommand,
@@ -223,7 +227,8 @@ paths that get walked every day.
   the board fetches its typefaces from Google Fonts, so "no network calls beyond its own server" was
   false; [`docs/board.md`](docs/board.md) now says so, and how to remove them.
 
-[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/aj-oss-tools/repolane/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/aj-oss-tools/repolane/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/aj-oss-tools/repolane/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/aj-oss-tools/repolane/compare/v0.2.1...v0.3.0
