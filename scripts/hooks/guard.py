@@ -79,6 +79,7 @@ def read(path, limit=6000):
 def memory_brief(lane):
     """Cross-repo index + every lane repo's index. Indexes only; Claude opens files it needs."""
     parts = ["MEMORY for this session (indexes; open a linked file when it is relevant):",
+             f"## preferences — {AD}/knowledge/preferences.md", read(f"{AD}/knowledge/preferences.md", 3000).strip() or "(empty)",
              f"## cross-repo — {AD}/memory/MEMORY.md", read(f"{AD}/memory/MEMORY.md", 3000).strip()]
     for r in lane_repo_dirs(lane):
         parts += [f"## {r} — {AD}/memory/{r}/MEMORY.md", read(f"{AD}/memory/{r}/MEMORY.md", 3000).strip() or "(empty)"]

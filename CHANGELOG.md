@@ -21,6 +21,14 @@ written down. Inside a git checkout it also says how far past the release tag yo
   same mechanism described in [`docs/rules.md`](docs/rules.md#rules-of-your-own), so `lane doctor`
   verifies them the same way it verifies any other custom rule.
 
+### Fixed
+
+- **`pref`-scoped memory was written but never read back into a session.** `lane-memory file <slug>
+  pref` correctly appended to `knowledge/preferences.md`, but `memory_brief()` in
+  `scripts/hooks/guard.py` never read that file, so the most durable scope — meant to apply to
+  every lane, forever — was the one scope that silently never reached a session. It now has its
+  own `## preferences` section, read the same way the cross-repo and per-repo sections are.
+
 ## [0.1.0] — 2026-09-18
 
 First release. Everything below was built between 2026-09-17 and 2026-09-18; there are no earlier
