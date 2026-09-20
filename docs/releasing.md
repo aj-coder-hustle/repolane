@@ -51,6 +51,14 @@ another contributor─┘                     here, but it's protected against f
   the auto-opened "Release vX.Y.Z" PR (into `main`) gets merged. Nothing about the automation
   decides *when* to ship — only *what version number* the next release should be, once it's
   merged. Who's able to merge it is whatever `main`'s PR page already shows you.
+- **That one PR — `release` → `main` — always gets a plain merge commit, never squash or
+  rebase.** Both of those rewrite the commits' SHAs when they land on `main`, which makes
+  `release` instantly diverge from what it just shipped and forces a reconcile merge before the
+  next push to `release` will even apply cleanly (this bit us twice before the rule existed). A
+  real merge commit keeps `release`'s commits exactly as they are and just ties them into `main`,
+  so `release` stays a clean ancestor and nothing needs reconciling afterward. Feature-branch PRs
+  *into* `release` are unaffected by this — squash is still fine there, since those branches get
+  discarded anyway.
 
 ## What you actually need to do in a PR
 
