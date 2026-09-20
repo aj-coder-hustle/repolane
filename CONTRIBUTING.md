@@ -72,6 +72,7 @@ changes behaviour and leaves the docs describing the old behaviour is not finish
 | [`docs/board.md`](docs/board.md) | the web board |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | the ways it breaks, and how to recover |
 | [`docs/releasing.md`](docs/releasing.md) | how a merged PR actually becomes a release |
+| [`docs/extending.md`](docs/extending.md) | `scripts/local/` custom commands, and `lane rules pull` for shared rules |
 
 Each folder also has its own README explaining what lives there — `scripts/`, `scripts/hooks/`,
 `scripts/board/`, `registry/`, `memory/`, `knowledge/`, `.claude/`. If you add a file, the

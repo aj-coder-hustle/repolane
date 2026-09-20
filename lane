@@ -60,6 +60,27 @@ usage(){
     line=$(map "$c"); printf "    \e[1m%-10s\e[0m %s\n" "$c" "${line#*|}"
   done
   printf '\n    %-10s %s\n\n' "install" "put lane on your PATH so it works from anywhere"
+  # scripts/local/<name> (docs/extending.md): any executable there is a `lane <name>` too. Listed
+  # separately, after the built-ins, so a shadowed name is never confused for one of them.
+  if [ -d "$AD/scripts/local" ]; then
+    locals=""
+    for f in "$AD/scripts/local"/*; do
+      [ -x "$f" ] && [ ! -d "$f" ] || continue
+      locals="$locals $f"
+    done
+    if [ -n "$locals" ]; then
+      printf '  \e[1myour commands:\e[0m\n\n'
+      for f in $locals; do
+        b=$(basename "$f")
+        # `# lane: <one-liner>` on the script's own second line, the same convention `lane <cmd>
+        # --help` already reads a usage block from — sed -n '2,/^$/p' etc.
+        desc=$(sed -n '2p' "$f" 2>/dev/null)
+        case "$desc" in '# lane: '*) desc="${desc#\# lane: }" ;; *) desc="" ;; esac
+        printf "    \e[1m%-10s\e[0m %s\n" "$b" "$desc"
+      done
+      echo
+    fi
+  fi
 }
 
 cmd="${1:-}"
@@ -175,6 +196,14 @@ if entry=$(map "$cmd"); then
   esac
   shift 2>/dev/null || true
   exec "${entry%%|*}" "$@"
+fi
+
+# Not a built-in — but scripts/local/<name> (gitignored, docs/extending.md) turns any executable
+# file into a `lane <name>` subcommand without ever touching this dispatcher again. Checked only
+# here, after `map()` has already missed, so a built-in of the same name always wins.
+if [ -x "$AD/scripts/local/$cmd" ] && [ ! -d "$AD/scripts/local/$cmd" ]; then
+  shift 2>/dev/null || true
+  exec "$AD/scripts/local/$cmd" "$@"
 fi
 
 # not a command — say so, and guess what was meant

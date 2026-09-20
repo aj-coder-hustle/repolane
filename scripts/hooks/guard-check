@@ -453,6 +453,23 @@ if rows:
 PY
 fi
 
+# scripts/local/<name> (docs/extending.md) shadowed by a built-in of the same name — it would
+# never run, `lane <name>` always resolves to the built-in first. Advisory only, cheap, local.
+if [ "$QUIET" = 0 ] && [ -d "$AD/scripts/local" ]; then
+  for f in "$AD/scripts/local"/*; do
+    [ -x "$f" ] && [ ! -d "$f" ] || continue
+    b=$(basename "$f")
+    case "$b" in
+      init|add|start|resume|park|done|status|brief|board|with|run|gh|ref|note|merge|plan|find|\
+      sessions|audit|workspace|env|keys|secrets|sync|doctor|upgrade|import|nested|menu|help|\
+      install|version|rules)
+        echo
+        echo "scripts/local/$b is shadowed by the built-in $b command and will never run."
+        ;;
+    esac
+  done
+fi
+
 if [ "$VERBOSE" = 1 ]; then
   echo
   echo "the full suite (it builds its own throwaway control plane; your lanes are not touched):"

@@ -8,7 +8,13 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`scripts/local/<name>`**: any executable file there becomes a `lane <name>` subcommand,
+  without ever editing the tracked `lane` dispatcher again. Gitignored, a full peer of built-in
+  commands (can `source scripts/lib.sh` itself), listed in `lane help` under "your commands:",
+  and flagged by `lane doctor` if a name collides with — and is therefore shadowed by — a real
+  built-in. See [`docs/extending.md`](docs/extending.md).
 
 ## [0.5.0] — 2026-09-20
 

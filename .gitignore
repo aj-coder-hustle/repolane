@@ -7,6 +7,12 @@
 __pycache__/
 /lane.code-workspace
 
+# Custom `lane <name>` subcommands (docs/extending.md) — machine-local, never shipped.
+/scripts/local/
+
+# `lane rules pull` cache of a shared, git-backed rules source (docs/extending.md).
+/registry/.shared-cache/
+
 # Project rules and the repo list are per-machine and often name private services, tools and
 # repos. registry/config.yml and registry/README.md are tracked; the .yaml files are not, and
 # must never be — this repo is public, and a fork inherits whatever is committed here.
