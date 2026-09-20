@@ -58,13 +58,22 @@ jobs:
       - name: Open (or update) the PR into main
         if: steps.plan.outputs.should_release == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The default GITHUB_TOKEN can't open a PR when the org has "Allow GitHub Actions to
+          # create pull requests" turned off (aj-oss-tools does) -- that's an org-wide policy no
+          # repo-level setting can override. RELEASE_PR_TOKEN is a fine-grained PAT scoped to
+          # just this repo (Pull requests: write, Contents: read), the same workaround
+          # notify-site.yml already uses for its own cross-permission problem.
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
         run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "RELEASE_PR_TOKEN is not set -- see the comment above this step. Skipping the PR, not failing the build."
+            exit 0
+          fi
           v="${{ steps.plan.outputs.version }}"
-          if gh pr list --base main --head release --state open --json number -q '.[0].number' | grep -q .; then
-            gh pr edit "$(gh pr list --base main --head release --state open --json number -q '.[0].number')" \
-              --title "Release v$v"
+          body="Auto-generated from \`## [Unreleased]\` in CHANGELOG.md. Merging this tags v$v and triggers the site's changelog rebuild."
+          existing="$(gh pr list --base main --head release --state open --json number -q '.[0].number')"
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --title "Release v$v" --body "$body"
           else
-            gh pr create --base main --head release --title "Release v$v" \
-              --body "Auto-generated from \`## [Unreleased]\` in CHANGELOG.md. Merging this tags v$v and triggers the site's changelog rebuild."
+            gh pr create --base main --head release --title "Release v$v" --body "$body"
           fi
