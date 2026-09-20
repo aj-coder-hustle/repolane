@@ -77,6 +77,10 @@ Nothing is written silently. Claude drafts the memory, then asks whether it belo
 | `lane secrets <repo> scan\|add\|list` | declare a repo's own secret/credential filenames, beyond the built-in set |
 | `lane sync [repo]` | check a repo's real GitHub branch protection (`gh api`) and record it for the guard |
 | `lane upgrade` | take an update from upstream — fast-forwards if it can, refuses with the manual recipe if it can't |
+| `lane rules pull [url\|--latest]` / `lane rules status` | pull a shared, SHA-pinned rules file from a team git repo — see [`docs/extending.md`](extending.md) |
+
+Any executable in `scripts/local/` also becomes a `lane <name>` command of its own — see
+[`docs/extending.md`](extending.md).
 
 `lane doctor` is the one to run when something feels wrong. It compiles the guard, fires nine
 named probes at it and prints each verdict — eight that must be refused and one ordinary command

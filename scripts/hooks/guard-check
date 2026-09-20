@@ -126,6 +126,26 @@ else
 fi
 [ "$good" -eq "$n" ] || { echo "   a rule that stopped refusing is a rule that is gone. Check recent edits to scripts/hooks/guard.py (the built-ins) or registry/rules.yaml (this plane's own)."; exit 1; }
 
+# lane rules pull (docs/extending.md): the shared, SHA-pinned rules source has drifted from what
+# is pinned in registry/config.yml. Cheap (`git ls-remote`, no clone), advisory-only like every
+# other check below it, never auto-pulls — but printed here, first and with a stronger prefix,
+# because a team's shared guard rules silently drifting is a different severity of problem than
+# one person's stale branch-protection cache. Prints nothing if shared_rules isn't configured.
+if [ "$QUIET" = 0 ] && [ -f "$AD/registry/config.yml" ] && grep -q '^shared_rules:' "$AD/registry/config.yml" 2>/dev/null; then
+  SR_URL=$(sed -n '/^shared_rules:/,/^[a-z]/p' "$AD/registry/config.yml" | sed -n 's/^[[:space:]]*url:[[:space:]]*//p' | head -1 | tr -d '"'"'"' ')
+  SR_SHA=$(sed -n '/^shared_rules:/,/^[a-z]/p' "$AD/registry/config.yml" | sed -n 's/^[[:space:]]*pinned_sha:[[:space:]]*//p' | head -1 | tr -d '"'"'"' ')
+  if [ -n "$SR_URL" ]; then
+    SR_REMOTE=$(git ls-remote "$SR_URL" HEAD 2>/dev/null | awk '{print $1}')
+    if [ -n "$SR_REMOTE" ] && [ -n "$SR_SHA" ] && [ "$SR_REMOTE" != "$SR_SHA" ]; then
+      echo
+      echo "!! shared rules (lane rules) are pinned at $SR_SHA but $SR_URL is now at $SR_REMOTE — run: lane rules pull --latest (after reviewing what changed)"
+    elif [ -z "$SR_REMOTE" ]; then
+      echo
+      echo "!! shared rules (lane rules) — could not reach $SR_URL to check for drift"
+    fi
+  fi
+fi
+
 # Is it in force where it matters?
 report=$(python3 - "$AD" "$VERBOSE" <<'PY'
 import json, os, sys
@@ -451,6 +471,23 @@ if rows:
         for p in problems:
             print(f"  {lid}: {p}")
 PY
+fi
+
+# scripts/local/<name> (docs/extending.md) shadowed by a built-in of the same name — it would
+# never run, `lane <name>` always resolves to the built-in first. Advisory only, cheap, local.
+if [ "$QUIET" = 0 ] && [ -d "$AD/scripts/local" ]; then
+  for f in "$AD/scripts/local"/*; do
+    [ -x "$f" ] && [ ! -d "$f" ] || continue
+    b=$(basename "$f")
+    case "$b" in
+      init|add|start|resume|park|done|status|brief|board|with|run|gh|ref|note|merge|plan|find|\
+      sessions|audit|workspace|env|keys|secrets|sync|doctor|upgrade|import|nested|menu|help|\
+      install|version|rules)
+        echo
+        echo "scripts/local/$b is shadowed by the built-in $b command and will never run."
+        ;;
+    esac
+  done
 fi
 
 if [ "$VERBOSE" = 1 ]; then

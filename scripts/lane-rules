@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+# lane-rules pull [<git-url>|--latest] | status
+# A shared, git-backed source for registry/rules.yaml-style rules and scripts/local/ scripts, for
+# a team that wants the same guard rules everywhere without pasting a file around by hand. Full
+# reasoning: docs/extending.md.
+#
+#   lane rules pull <git-url>   first pull — clones the repo, pins the exact commit SHA fetched
+#   lane rules pull             re-fetch the same URL; refuses to move past the pinned SHA
+#   lane rules pull --latest    re-fetch and intentionally advance the pin to the new commit
+#   lane rules status           configured URL, pinned SHA, remote HEAD, what is loaded
+#
+# The shared repo's root is expected to hold: rules.yaml (required, same schema as
+# registry/rules.yaml) and, optionally, scripts.d/ (files copied into scripts/local/).
+#
+# Security properties, all load-bearing — see docs/extending.md before changing any of them:
+#   - SHA-pinned, never tracking a branch tip. Advancing the pin is always an explicit, separate
+#     step (--latest), never a side effect of an ordinary pull.
+#   - Copied, never symlinked or live-mounted, into registry/rules.shared.yaml and scripts/local/.
+#   - Rule ids are namespaced (shared-<repo-name>-<id>) so they cannot silently collide with a
+#     rule typed by hand.
+#   - registry/rules.shared.yaml is a separate file from registry/rules.yaml — never merged into
+#     it, never overwrites it. guard.py's load_rules() reads both through the identical
+#     parse/validate/deny-only path; nothing here bypasses that.
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+
+CONFIG="$AD/registry/config.yml"
+CACHE="$AD/registry/.shared-cache"
+SHARED_RULES="$AD/registry/rules.shared.yaml"
+
+# --- registry/config.yml `shared_rules: { url:, pinned_sha: }` -------------------------------
+cfg_get(){ # cfg_get <key>  (url|pinned_sha), read from the shared_rules: block only
+  [ -f "$CONFIG" ] || return 0
+  sed -n '/^shared_rules:/,/^[a-z]/p' "$CONFIG" | sed -n "s/^[[:space:]]*$1:[[:space:]]*//p" | head -1 | tr -d '\042\047'
+}
+cfg_set(){ # cfg_set <url> <sha> — rewrite (or append) the shared_rules: block, in place
+  local url="$1" sha="$2" tmp="$CONFIG.tmp.$$"
+  touch "$CONFIG"
+  python3 - "$CONFIG" "$url" "$sha" "$tmp" <<'PY'
+import re, sys
+path, url, sha, tmp = sys.argv[1:]
+text = open(path).read() if __import__("os").path.exists(path) else ""
+block = (
+    "shared_rules:\n"
+    "  # lane rules pull (docs/extending.md) — a team's shared, SHA-pinned rules.yaml. pinned_sha\n"
+    "  # only ever advances via `lane rules pull --latest`, never a plain `lane rules pull`.\n"
+    f"  url: {url}\n"
+    f"  pinned_sha: {sha}\n"
+)
+if re.search(r"(?m)^shared_rules:\n(?:[ \t].*\n?)*", text):
+    text = re.sub(r"(?m)^shared_rules:\n(?:[ \t].*\n?)*", block, text, count=1)
+else:
+    if text and not text.endswith("\n"):
+        text += "\n"
+    text += ("\n" if text else "") + block
+open(tmp, "w").write(text)
+PY
+  mv "$tmp" "$CONFIG"
+}
+
+sub="${1:-}"; shift 2>/dev/null || true
+
+case "$sub" in
+  pull)
+    LATEST=0; URL=""
+    for a in "$@"; do
+      case "$a" in
+        --latest) LATEST=1 ;;
+        *) URL="$a" ;;
+      esac
+    done
+    [ -n "$URL" ] || URL=$(cfg_get url)
+    [ -n "$URL" ] || die "usage: lane rules pull <git-url>  (no URL configured yet in registry/config.yml)"
+
+    PINNED=$(cfg_get pinned_sha)
+    [ -n "$PINNED" ] || LATEST=1   # nothing pinned yet: the first pull always "advances"
+
+    mkdir -p "$CACHE"
+    REPO_DIR="$CACHE/repo"
+    if [ -d "$REPO_DIR/.git" ]; then
+      CUR_ORIGIN=$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null || true)
+      if [ "$CUR_ORIGIN" != "$URL" ]; then
+        rm -rf "$REPO_DIR"
+      fi
+    fi
+    if [ -d "$REPO_DIR/.git" ]; then
+      git -C "$REPO_DIR" fetch --quiet origin || die "lane rules pull: fetch failed for $URL"
+    else
+      git clone --quiet "$URL" "$REPO_DIR" || die "lane rules pull: clone failed for $URL"
+    fi
+    # The default remote branch's tip is what "latest" means — this never tracks a branch on its
+    # own between pulls, it only asks, right now, what that branch currently points at.
+    REMOTE_HEAD=$(git -C "$REPO_DIR" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
+    [ -n "$REMOTE_HEAD" ] || REMOTE_HEAD=main
+    NEW_SHA=$(git -C "$REPO_DIR" rev-parse "origin/$REMOTE_HEAD" 2>/dev/null) \
+      || die "lane rules pull: could not resolve origin/$REMOTE_HEAD"
+
+    if [ "$LATEST" != 1 ] && [ -n "$PINNED" ] && [ "$NEW_SHA" != "$PINNED" ]; then
+      echo "lane rules pull: the shared repo has moved since the pinned commit:"
+      echo "  pinned:  $PINNED"
+      echo "  remote:  $NEW_SHA  (origin/$REMOTE_HEAD)"
+      echo "not advancing — this pull re-verifies the pin, it never silently tracks a branch tip."
+      echo "run:  lane rules pull --latest    to intentionally move onto the new commit"
+      exit 1
+    fi
+
+    git -C "$REPO_DIR" checkout --quiet "$NEW_SHA" || die "lane rules pull: could not check out $NEW_SHA"
+
+    # A namespace for this shared repo's rule ids, so they cannot silently collide with a rule
+    # typed by hand — the repo's own basename (URL, minus a trailing .git), or "shared" as a
+    # fallback for something unusual like a local path.
+    NAME=$(basename "$URL" .git); [ -n "$NAME" ] || NAME=shared
+    PREFIX="shared-$NAME-"
+
+    SRC_RULES="$REPO_DIR/rules.yaml"
+    if [ -f "$SRC_RULES" ]; then
+      python3 - "$SRC_RULES" "$SHARED_RULES" "$PREFIX" "$URL" "$NEW_SHA" <<'PY'
+import sys
+src, dst, prefix, url, sha = sys.argv[1:]
+text = open(src).read()
+lines = text.splitlines()
+out = [f"# Written by `lane rules pull` from {url} @ {sha} — do not hand-edit, re-pull instead.",
+       "# Separate from registry/rules.yaml on purpose: never merged into it. See docs/extending.md.",
+       "rules:"]
+# Namespace every rule id in the copied file. Ids are the only field this needs to touch; the
+# rest is copied through verbatim and validated later by guard.py's normal load_rules() path.
+i = 0
+in_rules = False
+for ln in lines:
+    if ln.strip() == "rules:":
+        in_rules = True
+        continue
+    if not in_rules:
+        continue
+    s = ln.lstrip()
+    if s.startswith("- id:"):
+        indent = ln[:len(ln) - len(s)]
+        val = s[len("- id:"):].strip()
+        if val and not val.startswith(prefix):
+            val = prefix + val.strip("\"'")
+        out.append(f"{indent}- id: {val}")
+    else:
+        out.append(ln)
+open(dst, "w").write("\n".join(out) + "\n")
+PY
+      echo "wrote registry/rules.shared.yaml ($(grep -c '^  - id:' "$SHARED_RULES" 2>/dev/null || echo 0) rule(s), ids prefixed $PREFIX)"
+    else
+      echo "no rules.yaml at the root of $URL — nothing written to registry/rules.shared.yaml"
+      rm -f "$SHARED_RULES"
+    fi
+
+    if [ -d "$REPO_DIR/scripts.d" ]; then
+      mkdir -p "$AD/scripts/local"
+      n=0
+      for f in "$REPO_DIR/scripts.d"/*; do
+        [ -f "$f" ] || continue
+        cp "$f" "$AD/scripts/local/$(basename "$f")"
+        chmod +x "$AD/scripts/local/$(basename "$f")"
+        n=$((n+1))
+      done
+      [ "$n" -gt 0 ] && echo "copied $n script(s) from scripts.d/ into scripts/local/"
+    fi
+
+    cfg_set "$URL" "$NEW_SHA"
+    echo "pinned: $NEW_SHA  ($URL)"
+    echo "run: lane doctor   to verify every shared rule's example is actually refused"
+    ;;
+
+  status)
+    URL=$(cfg_get url); PINNED=$(cfg_get pinned_sha)
+    if [ -z "$URL" ]; then
+      echo "no shared rules source configured — registry/config.yml has no shared_rules: block"
+      echo "run: lane rules pull <git-url>   to set one up"
+      exit 0
+    fi
+    echo "url:         $URL"
+    echo "pinned sha:  ${PINNED:-none yet}"
+    if REMOTE=$(git ls-remote "$URL" HEAD 2>/dev/null | awk '{print $1}'); then
+      if [ -n "$REMOTE" ]; then
+        if [ "$REMOTE" = "$PINNED" ]; then
+          echo "remote HEAD: $REMOTE  (matches the pin)"
+        else
+          echo "remote HEAD: $REMOTE  (ahead of the pin — lane rules pull --latest to advance)"
+        fi
+      fi
+    else
+      echo "remote HEAD: could not reach $URL"
+    fi
+    if [ -f "$SHARED_RULES" ]; then
+      n=$(grep -c '^  - id:' "$SHARED_RULES" 2>/dev/null || echo 0)
+      echo "loaded:      $n rule(s) from registry/rules.shared.yaml"
+    else
+      echo "loaded:      registry/rules.shared.yaml does not exist"
+    fi
+    ;;
+
+  *) die "usage: lane rules pull [<git-url>|--latest] | status" ;;
+esac
