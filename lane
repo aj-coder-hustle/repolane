@@ -95,7 +95,40 @@ case "$cmd" in
     fi
     printf 'lane %s%s\n' "$v" "$extra"; exit 0 ;;
   install)
-    dest="${2:-$HOME/.local/bin}"; mkdir -p "$dest" || exit 1
+    dest="$HOME/.local/bin"; force=0
+    for a in "${@:2}"; do
+      case "$a" in
+        --force) force=1 ;;
+        -y|--yes) force=1 ;;
+        *) dest="$a" ;;
+      esac
+    done
+    mkdir -p "$dest" || exit 1
+    # An existing `dest/lane` symlink pointing somewhere other than this checkout is a stale
+    # install — a second checkout, a moved clone, a different worktree. Silently repointing it
+    # used to lose that with zero visibility; now it is either confirmed (a tty) or refused
+    # (no tty, e.g. an agent running install) unless --force says otherwise.
+    if [ -L "$dest/lane" ]; then
+      cur_real="$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$dest/lane" 2>/dev/null)"
+      if [ -n "$cur_real" ] && [ "$cur_real" != "$AD/lane" ]; then
+        if [ "$force" = 1 ]; then
+          :
+        elif [ -t 0 ] && [ -t 2 ]; then
+          echo "$dest/lane currently points at: $cur_real"
+          echo "installing here would repoint it to: $AD/lane"
+          printf "repoint it? [y/N]: " >&2
+          read -r yn || true
+          case "${yn:-n}" in
+            [yY]*) : ;;
+            *) echo "lane install: aborted — nothing changed" >&2; exit 1 ;;
+          esac
+        else
+          echo "lane install: $dest/lane already points at $cur_real, not $AD/lane" >&2
+          echo "  refusing to silently repoint a non-interactive install — pass --force to proceed" >&2
+          exit 1
+        fi
+      fi
+    fi
     ln -sf "$AD/lane" "$dest/lane" && echo "linked $dest/lane -> $AD/lane"
     # The long-form names (lane-start, lane-run, lane-memory …) are what the guard messages, the
     # agent prompts and the docs tell you to type. Link them too, or every one of those

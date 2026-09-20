@@ -493,6 +493,12 @@ link that versions before 0.1.0 put on your PATH:
 lane install
 ```
 
+Re-running it on the same checkout is always friction-free. If `dest/lane` already exists as a
+symlink pointing at a *different* checkout — a second clone, a moved clone, a stale worktree — it
+no longer repoints it silently: with a terminal attached it shows both paths and asks for an
+explicit `y`; without one (an agent running `lane install`, a script) it refuses and tells you to
+pass `--force` if you actually mean to repoint it (`lane install [dest] --force`).
+
 **`!! oversized guard files (rules are repeating)`** in `lane status` means a generated
 `settings.local.json` has grown past 20 KB because deny rules accumulated instead of being replaced.
 `lane resume <id>` rewrites it from scratch.
