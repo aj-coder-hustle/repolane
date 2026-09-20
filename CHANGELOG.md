@@ -8,7 +8,16 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The guard's default-branch protection (push, force-push, delete/move) only ever recognised
+  `main`/`master`/`develop`, hardcoded.** A repo whose integration branch is named something else —
+  `release`, `staging`, anything — got none of that protection, including this repo's own `release`
+  branch, added by the release-automation work without updating the guard. `registry/repos.yaml`
+  already records each repo's `default_branch`/`compare_branch` (set by `lane add`, used elsewhere
+  to resolve a lane's base) but `guard.py` never read it. It now unions that into the protected-branch
+  check per repo — never fewer branches protected than before, just more accurate when a repo's own
+  integration branch has a different name.
 
 ## [0.2.0] — 2026-09-19
 

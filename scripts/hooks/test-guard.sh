@@ -9,7 +9,7 @@
 set -u
 cd "$(dirname "$0")/../.." || exit 1
 SRC=$PWD; fail=0; cases=0; passed=0
-EXPECTED_CASES=179   # every case is counted; a run that asserts fewer is itself a failure
+EXPECTED_CASES=181   # every case is counted; a run that asserts fewer is itself a failure
 
 die(){ echo "!! test-guard: $*" >&2; exit 1; }
 
@@ -190,6 +190,15 @@ bash_case deny "git push origin main"
 bash_case pass "ALLOW_DEFAULT_BRANCH_PUSH=1 git push origin docs:main"
 bash_case pass "git push origin docs"
 bash_case deny "git branch -f main abc123"
+echo "== git: a repo's own default_branch/compare_branch (registry/repos.yaml) is protected too, not just main/master/develop"
+cat >> "$AD/registry/repos.yaml" <<'EOF'
+  docs:
+    path: repos/docs
+    origin: https://example.com/docs.git
+    default_branch: release
+EOF
+bash_case deny "git push origin release"
+bash_case pass "git push origin staging"
 bash_case deny "git update-ref refs/heads/main abc123"
 bash_case pass "git remote -v"
 echo "== our own lane-* commands are exempt from the path rules"
