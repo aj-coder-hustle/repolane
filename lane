@@ -77,6 +77,11 @@ usage(){
         # --help` already reads a usage block from — sed -n '2,/^$/p' etc.
         desc=$(sed -n '2p' "$f" 2>/dev/null)
         case "$desc" in '# lane: '*) desc="${desc#\# lane: }" ;; *) desc="" ;; esac
+        # A local script can come from `lane rules pull`'s scripts.d/ (docs/extending.md) --
+        # a remote source, however trusted -- so this one-liner is untrusted display text: strip
+        # control/escape characters (no terminal tricks) and cap the length (no runaway lines).
+        desc=$(printf '%s' "$desc" | tr -d '\000-\010\013\014\016-\037\177')
+        desc=$(printf '%s' "$desc" | cut -c1-72)
         printf "    \e[1m%-10s\e[0m %s\n" "$b" "$desc"
       done
       echo
@@ -202,9 +207,14 @@ fi
 # Not a built-in — but scripts/local/<name> (gitignored, docs/extending.md) turns any executable
 # file into a `lane <name>` subcommand without ever touching this dispatcher again. Checked only
 # here, after `map()` has already missed, so a built-in of the same name always wins.
-if [ -x "$AD/scripts/local/$cmd" ] && [ ! -d "$AD/scripts/local/$cmd" ]; then
+# $cmd is only ever a bare filename in that directory, never a path into or out of it: a name
+# with a `/` (traversal, or reaching some other executable entirely) is never looked up here.
+# A separate variable, not $cmd itself, so a rejected name still shows correctly in the "no
+# command named" error below rather than printing blank.
+local_cmd="$cmd"; case "$local_cmd" in */*) local_cmd="" ;; esac
+if [ -n "$local_cmd" ] && [ -x "$AD/scripts/local/$local_cmd" ] && [ ! -d "$AD/scripts/local/$local_cmd" ]; then
   shift 2>/dev/null || true
-  exec "$AD/scripts/local/$cmd" "$@"
+  exec "$AD/scripts/local/$local_cmd" "$@"
 fi
 
 # not a command — say so, and guess what was meant

@@ -264,7 +264,21 @@ def load_rules():
                 try: re.compile(w["matches"])
                 except re.error as e: bad.append(f"{rid}: `matches` is not a valid regular expression ({e})"); continue
             good.append(r)
-    return good, bad
+    # A rule id has to be unique across every rules.*.yaml file (including a shared one `lane
+    # rules pull` namespaces): doctor verifies a rule by feeding its `example:` through the guard
+    # and checking the refusal names that id, so two rules sharing an id makes that check
+    # meaningless — either could be the one that actually fired, or neither, with no way to tell.
+    # First occurrence wins and stays enforced; every later duplicate is rejected, loudly.
+    seen, unique = {}, []
+    for r in good:
+        rid = r.get("id")
+        if rid and rid in seen:
+            bad.append(f"{rid}: this id is used by more than one rule — ids must be unique; "
+                       f"the first one loaded stays enforced, this one does not")
+            continue
+        seen[rid] = True
+        unique.append(r)
+    return unique, bad
 
 def _path_cands(given, cwd):
     """The forms a `path:` glob may be written against: as typed, absolute, and every tail of the
