@@ -8,7 +8,18 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`lane sync [repo]`** checks a repo's real GitHub branch protection (`gh api
+  repos/<owner>/<repo>/branches`) and records it in `registry/repos.yaml` as
+  `protected_branches:` + `protection_synced: <date>`. `guard.py`'s protected-branch check now
+  unions that list in too, alongside `main`/`master`/`develop` and a repo's own
+  `default_branch`/`compare_branch` — never fewer branches protected, only ever more accurate.
+  Manual and always available; never run automatically by any other command, so nothing that
+  "starts work" blocks on a network call. Fails soft (a clear message, never a crash) for a repo
+  that isn't on GitHub, or when `gh` is missing or unauthenticated. `lane doctor` now also lists,
+  informationally only, any managed GitHub repo whose protection hasn't been checked in
+  `protection: sync_days` (`registry/config.yml`, 7 by default; `0` turns it off).
 
 ## [0.2.1] — 2026-09-20
 

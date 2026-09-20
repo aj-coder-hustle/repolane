@@ -124,8 +124,12 @@ def protected_branches(cwd, cur, cmd):
     """main/master/develop plus this repo's own default_branch/compare_branch from
     registry/repos.yaml (already collected by `lane add`, just never read here before) —
     so a repo whose integration branch is named something else (release, staging, ...)
-    gets the same protection without a hardcoded guess. Union only: never drops the
-    baseline three, only ever adds to them."""
+    gets the same protection without a hardcoded guess. Also unions in `protected_branches:`,
+    the list `lane sync` writes from the repo's real GitHub branch protection. Union only:
+    never drops the baseline three, only ever adds to them — a repo that has been synced and
+    genuinely has nothing else protected on GitHub still keeps main/master/develop and its own
+    default_branch/compare_branch, because `protected_branches: []` means "nothing EXTRA", not
+    "nothing at all"."""
     names = set(DEFAULT_PROTECTED)
     repo = repo_of(cwd, cur)
     if not repo:
@@ -140,6 +144,10 @@ def protected_branches(cwd, cur, cmd):
                 for field in ("default_branch", "compare_branch"):
                     fm = re.search(rf"^    {field}:\s*(\S+)", block, re.M)
                     if fm: names.add(fm.group(1))
+                pm = re.search(r"^    protected_branches:\n((?:      - .*\n)*)", block, re.M)
+                if pm:
+                    for bm in re.finditer(r"^      - (\S+)", pm.group(1), re.M):
+                        names.add(bm.group(1))
         except Exception:
             pass
     return names

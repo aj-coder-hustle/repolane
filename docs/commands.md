@@ -75,6 +75,7 @@ Nothing is written silently. Claude drafts the memory, then asks whether it belo
 | `lane env [id-or-repo]` | check each worktree's `.env` files are linked in — names only, never values |
 | `lane keys <path>` | list the key names in an env file, never the values |
 | `lane secrets <repo> scan\|add\|list` | declare a repo's own secret/credential filenames, beyond the built-in set |
+| `lane sync [repo]` | check a repo's real GitHub branch protection (`gh api`) and record it for the guard |
 
 `lane doctor` is the one to run when something feels wrong. It compiles the guard, fires nine
 named probes at it and prints each verdict — eight that must be refused and one ordinary command
@@ -82,10 +83,13 @@ that must not, because a guard that refuses everything is broken too — then ch
 and worktree is still wired to it. It also lists any lane nobody has touched in `stale_days`
 (`registry/config.yml`, 21 by default) — with its size on disk and the one command that clears it:
 `lane done <id>` when the work is merged and pushed, `lane done <id> --delete-branches` when
-nothing was ever done on it, `lane park <id> "<note>"` when there is work still in there. It only
-ever tells you; clearing a lane is always a command you type. `lane doctor -v` adds every wiring
-location and runs the full 179-case suite against a throwaway control plane it builds and deletes.
-Any failure exits non-zero — a stale lane is not one, so it does not.
+nothing was ever done on it, `lane park <id> "<note>"` when there is work still in there. It also
+lists any managed GitHub repo whose branch protection hasn't been checked with `lane sync` in
+`protection: sync_days` (`registry/config.yml`, 7 by default) — with the command to clear it. It
+only ever tells you; clearing a lane, or syncing a repo, is always a command you type — `lane sync`
+is never run for you. `lane doctor -v` adds every wiring
+location and runs the full 184-case suite against a throwaway control plane it builds and deletes.
+Any failure exits non-zero — a stale lane, or an unsynced repo, is not one, so it does not.
 
 ## Long-form names
 

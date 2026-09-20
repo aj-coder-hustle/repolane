@@ -42,6 +42,7 @@ map(){ case "$1" in
   env)         echo "$S/lane-env-check|check a lane's .env files are linked in: lane env [id]" ;;
   keys)        echo "$S/lane-env-keys|list the key names in an env file, never the values" ;;
   secrets)     echo "$S/repo-secrets|declare a repo's secret/credential files: lane secrets <repo> scan|add|list" ;;
+  sync)        echo "$S/lane-sync|check a repo's real GitHub branch protection: lane sync [repo]" ;;
   doctor)      echo "$S/hooks/guard-check|check the safety rules are working" ;;
   import)      echo "$S/lane-import|bring past Claude conversations in (optional)" ;;
   nested)      echo "$S/lane-nested|find and repair nested worktrees" ;;
@@ -50,7 +51,7 @@ map(){ case "$1" in
   *)           return 1 ;;
 esac; }
 
-ORDER="init add import start resume park done status brief board find with run gh ref note merge plan sessions audit workspace env keys secrets doctor nested"
+ORDER="init add import start resume park done status brief board find with run gh ref note merge plan sessions audit workspace env keys secrets sync doctor nested"
 
 usage(){
   printf '\n  \e[1mlane\e[0m — one piece of work at a time, across all your repos\n\n'

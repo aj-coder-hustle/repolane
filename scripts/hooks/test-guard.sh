@@ -9,7 +9,7 @@
 set -u
 cd "$(dirname "$0")/../.." || exit 1
 SRC=$PWD; fail=0; cases=0; passed=0
-EXPECTED_CASES=181   # every case is counted; a run that asserts fewer is itself a failure
+EXPECTED_CASES=184   # every case is counted; a run that asserts fewer is itself a failure
 
 die(){ echo "!! test-guard: $*" >&2; exit 1; }
 
@@ -201,6 +201,16 @@ bash_case deny "git push origin release"
 bash_case pass "git push origin staging"
 bash_case deny "git update-ref refs/heads/main abc123"
 bash_case pass "git remote -v"
+echo "== git: a synced repo's protected_branches: list (from lane sync) is unioned in too"
+cat >> "$AD/registry/repos.yaml" <<'EOF'
+    protected_branches:
+      - staging
+EOF
+bash_case deny "git push origin staging"
+echo "== git: an empty protected_branches: [] (synced, nothing extra) does not drop the baseline"
+perl -i -pe 'BEGIN{undef $/;} s/    protected_branches:\n      - staging\n/    protected_branches: []\n/' "$AD/registry/repos.yaml"
+bash_case deny "git push origin main"
+bash_case pass "git push origin staging"
 echo "== our own lane-* commands are exempt from the path rules"
 bash_case pass "lane-ref docs rm client-docs"
 bash_case pass "lane-ref docs list"
