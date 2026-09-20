@@ -304,11 +304,50 @@ elif verbose:
 PY
 fi
 
+# Repos whose real GitHub branch protection has never been checked, or was checked too long
+# ago. Purely informational, like the stale-lane report above: never blocks the exit code,
+# never runs `lane sync` itself, never touches anything. registry/repos.yaml is per-machine
+# and not guaranteed to exist yet, so a missing file is silently nothing to report, not a failure.
+SYNC_DAYS=$(sed -n 's/^[[:space:]]*sync_days:[[:space:]]*//p' "$AD/registry/config.yml" 2>/dev/null | head -1 | tr -d '"'"'"' ')
+case "${SYNC_DAYS:-}" in ''|*[!0-9]*) SYNC_DAYS=7 ;; esac
+if [ "$QUIET" = 0 ] && [ "$SYNC_DAYS" != 0 ] && [ -f "$AD/registry/repos.yaml" ]; then
+python3 - "$AD" "$SYNC_DAYS" <<'PY'
+import datetime, os, re, sys
+ad, days = sys.argv[1], int(sys.argv[2])
+today = datetime.date.today()
+text = open(f"{ad}/registry/repos.yaml").read()
+rows = []
+for m in re.finditer(r"(?:^|\n)  ([\w.-]+):\n((?:    .*\n)*)", text):
+    repo, block = m.group(1), m.group(2)
+    om = re.search(r"^    origin:\s*(\S+)", block, re.M)
+    origin = om.group(1) if om else ""
+    if "github.com" not in origin:
+        continue                      # not on GitHub — nothing for lane sync to check there
+    sm = re.search(r"^    protection_synced:\s*(\S+)", block, re.M)
+    if not sm:
+        rows.append((repo, "never checked"))
+        continue
+    try:
+        age = (today - datetime.date.fromisoformat(sm.group(1))).days
+    except ValueError:
+        rows.append((repo, "never checked"))
+        continue
+    if age >= days:
+        rows.append((repo, f"{age} days stale"))
+if rows:
+    print()
+    print(f"{len(rows)} repo(s) with branch protection not checked recently:")
+    for repo, why in rows:
+        print(f"  {repo}: branch protection not checked ({why}) — run: lane sync {repo}")
+    print("  the threshold is registry/config.yml `protection: sync_days:` (0 turns this off)")
+PY
+fi
+
 if [ "$VERBOSE" = 1 ]; then
   echo
   echo "the full suite (it builds its own throwaway control plane; your lanes are not touched):"
   bash "$(dirname "$G")/test-guard.sh" | sed 's/^/  /' || exit 1
 elif [ "$QUIET" = 0 ]; then
-  echo "179 more cases behind this:  lane doctor -v"
+  echo "184 more cases behind this:  lane doctor -v"
 fi
 exit 0

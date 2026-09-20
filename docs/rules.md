@@ -37,8 +37,12 @@ names and never values.
 
 ## Pushing to a default branch needs your word
 
-`main`, `master` and `develop` are refused. When you do mean it, the command carries a marker you
-can see: `ALLOW_DEFAULT_BRANCH_PUSH=1 git push …`. Remotes may never be added, changed or removed.
+`main`, `master` and `develop` are refused, plus a repo's own `default_branch`/`compare_branch`
+(`registry/repos.yaml`, set by `lane add`) — so a repo whose integration branch is named something
+else, `release` or `staging`, gets the same protection without you writing a rule for it. Once a
+repo has been checked with `lane sync`, its real GitHub branch protection is unioned in too. When
+you do mean it, the command carries a marker you can see: `ALLOW_DEFAULT_BRANCH_PUSH=1 git push …`.
+Remotes may never be added, changed or removed.
 
 ## Memory is never written directly
 
@@ -149,7 +153,7 @@ still answers nine named probes the way it should (eight refusals and one ordina
 rule in your `registry/rules.yaml` still refuses its own `example` — and is refused *by that rule*,
 not incidentally by a built-in — and that every lane and worktree is still wired to it. It prints each verdict, so the answer is something
 you can check rather than something you have to believe; `lane doctor -v` also runs the full
-179-case suite. A session whose `settings.local.json` lost
+184-case suite. A session whose `settings.local.json` lost
 its hooks is unguarded even when the guard itself is perfectly healthy, so both are checked.
 
 It then reports one thing that is not a health check at all: **lanes nobody has touched in a
@@ -167,3 +171,13 @@ Nothing is parked, finished or deleted for you, and no prompt appears: `lane doc
 from scripts and never blocks. It is also not a failure — a stale lane is untidy, not broken, so
 this section never changes the exit code. (`lane audit` asks the same question of the mirrors'
 branches and writes a file; this asks it of the lanes themselves, every time you run the doctor.)
+
+It reports one more thing the same way: repos whose real GitHub branch protection hasn't been
+checked. `lane sync [repo]` calls `gh api` for a repo's protected branches and writes them into
+`registry/repos.yaml` as `protected_branches:` + `protection_synced: <date>` — the guard unions
+that in on top of `main`/`master`/`develop` and the repo's own `default_branch`/`compare_branch`,
+never in place of them. Any managed repo on GitHub whose `protection_synced` is missing, or older
+than `protection: sync_days` (`registry/config.yml`, 7 days by default; `0` turns it off), is
+listed with `lane sync <repo>` to clear it. `lane sync` is never run for you — not by `lane
+doctor`, not by `lane start`/`lane resume` — it is a manual, always-available command, so nothing
+that "starts work" ever blocks on a network call to GitHub.

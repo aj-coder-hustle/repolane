@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# lane-sync [repo]     check a repo's real GitHub branch protection, and record it
+#
+#   lane sync            every repo in registry/repos.yaml
+#   lane sync api         just that one
+#
+# guard.py already refuses a push/force-push/delete of main/master/develop and a repo's own
+# default_branch/compare_branch (registry/repos.yaml) — a good guess, but a guess. This command
+# asks GitHub what is actually protected on that repo and writes the answer into repos.yaml as
+# `protected_branches:` + `protection_synced: <date>`, which guard.py's protected_branches()
+# unions in on top of the guess (never in place of it — see that function's comment).
+#
+# Manual and always available, never run automatically by any other command: a "start work"
+# command that blocks on a network call to GitHub is a worse regression than one blank in
+# `lane doctor` warning it has been a while since the last sync.
+#
+# Never hard-errors on a repo that is not on GitHub (GitLab, Bitbucket, self-hosted, local-only)
+# or when `gh` is missing/unauthenticated — it prints why and moves on (or exits 0 for one repo),
+# because "can't check" is not the same claim as "nothing is protected".
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+
+want="${1:-}"
+NOT_ON_GITHUB="using the default guess (main/master/develop + this repo's default_branch/compare_branch) — not on GitHub, can't check protection"
+
+command -v gh >/dev/null 2>&1 || { echo "lane sync: gh is not installed — cannot check GitHub branch protection ($NOT_ON_GITHUB)"; exit 0; }
+gh auth status >/dev/null 2>&1 || { echo "lane sync: gh is not authenticated (run: gh auth login) — cannot check GitHub branch protection"; exit 0; }
+
+if [ -n "$want" ]; then
+  repo_exists "$want"
+  names="$want"
+else
+  names=$(sed -n 's/^  \([a-zA-Z0-9._-]*\):$/\1/p' "$AD/registry/repos.yaml")
+  [ -n "$names" ] || { echo "lane sync: no repos in registry/repos.yaml"; exit 0; }
+fi
+
+any_failed=0
+for repo in $names; do
+  origin=$(sed -n "/^  $repo:\$/,/^  [a-zA-Z0-9._-]*:\$/p" "$AD/registry/repos.yaml" | sed -n 's/^    origin: //p' | head -1)
+  if [ -z "$origin" ] || [ "$origin" = "(local-only)" ]; then
+    echo "$repo: $NOT_ON_GITHUB"
+    continue
+  fi
+  # owner/repo out of a github.com URL, in any of the shapes an `origin:` line has been seen in:
+  # https://github.com/owner/repo(.git), git@github.com:owner/repo(.git), ssh://git@github.com/owner/repo
+  owner_repo=$(printf '%s' "$origin" | sed -nE \
+    -e 's#^(https://|git://)github\.com/([^/]+)/([^/.]+)(\.git)?/?$#\2/\3#p' \
+    -e 's#^git@github\.com:([^/]+)/([^/.]+)(\.git)?/?$#\1/\2#p' \
+    -e 's#^ssh://git@github\.com/([^/]+)/([^/.]+)(\.git)?/?$#\1/\2#p')
+  if [ -z "$owner_repo" ]; then
+    echo "$repo: $NOT_ON_GITHUB"
+    continue
+  fi
+  owner="${owner_repo%%/*}"; ghrepo="${owner_repo#*/}"
+  # origin: is user-editable data (a typo'd remote, a copy-pasted URL with something odd in it) —
+  # validated against a plain name pattern before either piece goes anywhere near a `gh` argv.
+  case "$owner$ghrepo" in *[!A-Za-z0-9._-]*) echo "$repo: origin's owner/repo '$owner_repo' does not look like a real GitHub name — skipping"; any_failed=1; continue ;; esac
+
+  # One argv, no shell string built out of $owner/$ghrepo — gh does the quoting.
+  protected=$(gh api "repos/$owner/$ghrepo/branches" --paginate --jq '.[] | select(.protected==true) | .name' 2>"${TMPDIR:-/tmp}/lane-sync-err.$$")
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    echo "$repo: gh api call failed for $owner/$ghrepo — $NOT_ON_GITHUB"
+    sed 's/^/    /' "${TMPDIR:-/tmp}/lane-sync-err.$$"
+    rm -f "${TMPDIR:-/tmp}/lane-sync-err.$$"
+    any_failed=1
+    continue
+  fi
+  rm -f "${TMPDIR:-/tmp}/lane-sync-err.$$"
+
+  python3 "$AD/scripts/sync-write.py" "$AD/registry/repos.yaml" "$repo" "$protected"
+  if [ -n "$protected" ]; then
+    echo "$repo ($owner/$ghrepo): protected — $(printf '%s' "$protected" | tr '\n' ' ')"
+  else
+    echo "$repo ($owner/$ghrepo): nothing protected on GitHub (main/master/develop + this repo's default_branch/compare_branch still apply)"
+  fi
+done
+
+[ "$any_failed" = 0 ]

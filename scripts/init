@@ -18,7 +18,7 @@ while [ -L "$_self" ]; do
 done
 AD="$(cd "$(dirname "$_self")/.." && pwd)"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
-OWNER=""; TRACKER=""; ASSUME_YES=0; CHECK_ONLY=0; DELETE_SESSIONS_ON_DONE=""
+OWNER=""; TRACKER=""; ASSUME_YES=0; CHECK_ONLY=0; DELETE_SESSIONS_ON_DONE=""; SYNC_DAYS=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -29,6 +29,7 @@ while [ $# -gt 0 ]; do
     --github)  TRACKER="https://github.com/${2:-}/issues/{key}"; shift 2 ;;
     --claude-home) CLAUDE_HOME="${2:-}"; shift 2 ;;
     --delete-sessions-on-done) DELETE_SESSIONS_ON_DONE="${2:-}"; shift 2 ;;
+    --sync-days) SYNC_DAYS="${2:-}"; shift 2 ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     --check) CHECK_ONLY=1; shift ;;
     -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -174,6 +175,20 @@ if [ -z "$DELETE_SESSIONS_ON_DONE" ] && [ "$ASSUME_YES" != 1 ]; then
 fi
 [ -n "$DELETE_SESSIONS_ON_DONE" ] || DELETE_SESSIONS_ON_DONE=false
 
+# Same style again: a default for `lane doctor`'s advisory, not a switch that turns branch
+# protection checking on or off — `lane sync` itself is always available regardless of this.
+if [ -z "$SYNC_DAYS" ] && [ "$ASSUME_YES" != 1 ]; then
+  pick3=$(pick "How often should lane doctor remind you to re-check GitHub branch protection?" \
+    "Every 7 days (default)" "Every 30 days" "Manual only (never flag it)")
+  case "${pick3:-1}" in
+    2) SYNC_DAYS=30 ;;
+    3) SYNC_DAYS=0 ;;
+    *) SYNC_DAYS=7 ;;
+  esac
+  echo
+fi
+[ -n "$SYNC_DAYS" ] || SYNC_DAYS=7
+
 echo "Setting up $(printf %s "$AD" | sed "s#^$HOME#~#") for $OWNER:"
 
 # ---------------------------------------------------------------- 3. folders and files
@@ -207,6 +222,12 @@ lanes:
   # it finds any. This only changes which answer the prompt defaults to — it is always asked
   # interactively, never skipped, because it is deciding whether to delete conversation history.
   delete_sessions_on_done: $DELETE_SESSIONS_ON_DONE
+
+protection:
+  # \`lane doctor\` reminds you to run \`lane sync\` for a repo whose GitHub branch protection
+  # has not been checked in this many days (or never). Sync itself is always manual —
+  # this only decides when the reminder shows up. 0 turns the reminder off.
+  sync_days: $SYNC_DAYS
 EOT
   made "registry/config.yml"
 fi

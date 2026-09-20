@@ -10,6 +10,34 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 Nothing yet.
 
+## [0.3.0] — 2026-09-20
+
+### Added
+
+- **`lane sync [repo]`** checks a repo's real GitHub branch protection (`gh api
+  repos/<owner>/<repo>/branches`) and records it in `registry/repos.yaml` as
+  `protected_branches:` + `protection_synced: <date>`. `guard.py`'s protected-branch check now
+  unions that list in too, alongside `main`/`master`/`develop` and a repo's own
+  `default_branch`/`compare_branch` — never fewer branches protected, only ever more accurate.
+  Manual and always available; never run automatically by any other command, so nothing that
+  "starts work" blocks on a network call. Fails soft (a clear message, never a crash) for a repo
+  that isn't on GitHub, or when `gh` is missing or unauthenticated. `lane doctor` now also lists,
+  informationally only, any managed GitHub repo whose protection hasn't been checked in
+  `protection: sync_days` (`registry/config.yml`, 7 by default; `0` turns it off).
+
+## [0.2.1] — 2026-09-20
+
+### Fixed
+
+- **The guard's default-branch protection (push, force-push, delete/move) only ever recognised
+  `main`/`master`/`develop`, hardcoded.** A repo whose integration branch is named something else —
+  `release`, `staging`, anything — got none of that protection, including this repo's own `release`
+  branch, added by the release-automation work without updating the guard. `registry/repos.yaml`
+  already records each repo's `default_branch`/`compare_branch` (set by `lane add`, used elsewhere
+  to resolve a lane's base) but `guard.py` never read it. It now unions that into the protected-branch
+  check per repo — never fewer branches protected than before, just more accurate when a repo's own
+  integration branch has a different name.
+
 ## [0.2.0] — 2026-09-19
 
 ### Added
@@ -144,6 +172,8 @@ paths that get walked every day.
   the board fetches its typefaces from Google Fonts, so "no network calls beyond its own server" was
   false; [`docs/board.md`](docs/board.md) now says so, and how to remove them.
 
-[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/aj-oss-tools/repolane/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/aj-oss-tools/repolane/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/aj-oss-tools/repolane/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/aj-oss-tools/repolane/releases/tag/v0.1.0
