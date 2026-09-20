@@ -71,6 +71,7 @@ changes behaviour and leaves the docs describing the old behaviour is not finish
 | [`docs/commands.md`](docs/commands.md) | the full command reference |
 | [`docs/board.md`](docs/board.md) | the web board |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | the ways it breaks, and how to recover |
+| [`docs/releasing.md`](docs/releasing.md) | how a merged PR actually becomes a release |
 
 Each folder also has its own README explaining what lives there — `scripts/`, `scripts/hooks/`,
 `scripts/board/`, `registry/`, `memory/`, `knowledge/`, `.claude/`. If you add a file, the
@@ -82,8 +83,9 @@ folder's README should still be true afterwards. User-visible changes belong in
 1. Open an issue first if it is a design change or a new rule. For a bug or an obvious fix, go
    straight to a pull request.
 2. Fork, and branch from `release` — **not `main`.** `main` only ever moves by a "Release
-   vX.Y.Z" PR merging in from `release`, opened automatically once something lands there; direct
-   pushes to `main` are refused, even for the maintainer, outside an explicit override.
+   vX.Y.Z" PR merging in from `release`, opened automatically once something lands there; your PR
+   into `release` is the whole contribution, you never need to touch `main` or think about version
+   numbers. Full picture: [`docs/releasing.md`](docs/releasing.md).
 3. Make the change. Match the surrounding style: `set -u`, explicit error paths, comments that
    explain *why* rather than restating the line below them.
 4. Run `bash scripts/hooks/test-guard.sh`, and `lane doctor` if you have the clone set up.

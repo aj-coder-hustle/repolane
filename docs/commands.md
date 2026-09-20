@@ -76,6 +76,7 @@ Nothing is written silently. Claude drafts the memory, then asks whether it belo
 | `lane keys <path>` | list the key names in an env file, never the values |
 | `lane secrets <repo> scan\|add\|list` | declare a repo's own secret/credential filenames, beyond the built-in set |
 | `lane sync [repo]` | check a repo's real GitHub branch protection (`gh api`) and record it for the guard |
+| `lane upgrade` | take an update from upstream — fast-forwards if it can, refuses with the manual recipe if it can't |
 
 `lane doctor` is the one to run when something feels wrong. It compiles the guard, fires nine
 named probes at it and prints each verdict — eight that must be refused and one ordinary command
@@ -87,9 +88,24 @@ nothing was ever done on it, `lane park <id> "<note>"` when there is work still 
 lists any managed GitHub repo whose branch protection hasn't been checked with `lane sync` in
 `protection: sync_days` (`registry/config.yml`, 7 by default) — with the command to clear it. It
 only ever tells you; clearing a lane, or syncing a repo, is always a command you type — `lane sync`
-is never run for you. `lane doctor -v` adds every wiring
+is never run for you. It also checks, advisory-only like the rest of this list: whether the `lane`
+resolved on your `PATH` actually points at this checkout (`lane install` if not); whether `gh` is
+installed and authenticated (`lane sync`, `lane gh` need it); and, per active lane, whether what
+its spec file says it contains (`repo:`/`branch:` pairs) still matches what's actually checked out
+under `lanes/<id>/` on disk. `lane doctor -v` adds every wiring
 location and runs the full 184-case suite against a throwaway control plane it builds and deletes.
-Any failure exits non-zero — a stale lane, or an unsynced repo, is not one, so it does not.
+Any failure exits non-zero — a stale lane, an unsynced repo, a missing `gh`, or spec/worktree
+drift is not one, so it does not.
+
+`lane upgrade` automates the manual procedure in
+[Troubleshooting → "Upgrade friction"](troubleshooting.md#upgrade-friction-the-clone-is-the-control-plane):
+it refuses if tracked files outside `registry/`, `memory/`, `knowledge/`, `CLAUDE.md` and
+`.claude/settings.local.json` are dirty, fetches, and fast-forwards onto upstream only if that is
+a clean fast-forward. Any real divergence — local commits, a conflict — stops with no merge
+attempted and prints the same manual recipe (including the `.claude/settings.json`
+`git checkout --theirs` step if that's the conflict). On a successful fast-forward it prints the
+`VERSION` delta and the `CHANGELOG.md` sections that landed, then runs `lane doctor` automatically
+— the one command this repo lets another command run for you, because doctor is read-only.
 
 ## Long-form names
 

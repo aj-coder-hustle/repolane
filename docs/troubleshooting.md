@@ -344,6 +344,12 @@ cloned is no longer a copy of the repository: `registry/` holds your repos and l
 is dirty by design, and taking an update from upstream is a real merge between upstream's code and
 your state.
 
+`lane upgrade` automates exactly the procedure below: it refuses if anything tracked outside
+`registry/`, `memory/`, `knowledge/`, `CLAUDE.md` and `.claude/settings.local.json` is dirty,
+fetches, and fast-forwards only if that's clean — never an automatic merge. If it isn't a clean
+fast-forward (real divergence, or a conflict) it stops and prints the manual steps below rather
+than attempting anything. Run the steps by hand whenever `lane upgrade` itself refuses.
+
 ### Before you pull
 
 Commit your own state, or you will be merging on top of uncommitted changes and it will be hard to
@@ -492,6 +498,12 @@ link that versions before 0.1.0 put on your PATH:
 ```
 lane install
 ```
+
+Re-running it on the same checkout is always friction-free. If `dest/lane` already exists as a
+symlink pointing at a *different* checkout — a second clone, a moved clone, a stale worktree — it
+no longer repoints it silently: with a terminal attached it shows both paths and asks for an
+explicit `y`; without one (an agent running `lane install`, a script) it refuses and tells you to
+pass `--force` if you actually mean to repoint it (`lane install [dest] --force`).
 
 **`!! oversized guard files (rules are repeating)`** in `lane status` means a generated
 `settings.local.json` has grown past 20 KB because deny rules accumulated instead of being replaced.

@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# lane-upgrade   automate the manual upgrade procedure in docs/troubleshooting.md ("Upgrade
+# friction: the clone is the control plane"). Scoped narrowly on purpose, per the design consult:
+# this is that already-documented recipe wired up, not a new upgrade mechanism.
+#
+#   lane upgrade
+#
+# What it does, in order:
+#   1. refuses if $AD has uncommitted changes in tracked files outside the expected-dirty paths
+#      (registry/, memory/, knowledge/, CLAUDE.md, .claude/settings.local.json — the same paths
+#      CONTRIBUTING.md and .gitignore already call out as per-install, never worth blocking on)
+#   2. git fetch origin, then fast-forwards onto the upstream branch if it is a clean
+#      fast-forward (git merge --ff-only, which fails loudly and safely if it turns out not to be)
+#   3. on a real divergence — local commits, or a conflict — stops and prints the manual recipe.
+#      No automatic merge or conflict resolution is ever attempted; that is a deliberate,
+#      permanent design decision, not a gap to fill in later.
+#   4. on success: prints the VERSION delta and the CHANGELOG.md sections that landed, then runs
+#      `lane doctor` (the one place this script invokes another command automatically — doctor is
+#      read-only/advisory, so running it is not itself a mutating action).
+set -u
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+
+cd "$AD" || die "cannot cd into $AD"
+git rev-parse --git-dir >/dev/null 2>&1 || die "$AD is not a git checkout — nothing to upgrade"
+
+# Step 1: refuse on tracked-and-dirty files outside the expected-dirty set. Read that set from
+# .gitignore rather than hardcoding it, plus the always-tracked-but-per-install paths
+# CONTRIBUTING.md names (memory/, knowledge/, CLAUDE.md, .claude/settings.local.json is already
+# gitignored via *.local.json).
+dirty=$(git status --porcelain)
+if [ -n "$dirty" ]; then
+  blocking=""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    path="${line:3}"
+    case "$path" in
+      registry/*|memory/*|knowledge/*|CLAUDE.md|.claude/settings.local.json) : ;;
+      *) blocking="$blocking$line
+" ;;
+    esac
+  done <<<"$dirty"
+  if [ -n "$blocking" ]; then
+    echo "lane upgrade: uncommitted changes in tracked files outside the expected-dirty paths:" >&2
+    printf '%s' "$blocking" | sed 's/^/  /' >&2
+    echo "  commit or stash these first (registry/, memory/, knowledge/, CLAUDE.md and" >&2
+    echo "  .claude/settings.local.json are always allowed to be dirty — see CONTRIBUTING.md)" >&2
+    exit 1
+  fi
+fi
+
+branch=$(git rev-parse --abbrev-ref HEAD)
+[ "$branch" != HEAD ] || die "detached HEAD — checkout a branch before upgrading"
+
+echo "fetching origin..."
+git fetch origin || die "git fetch origin failed"
+
+upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null) \
+  || die "$branch has no upstream to compare against"
+
+old_head=$(git rev-parse HEAD)
+old_version=$(cat "$AD/VERSION" 2>/dev/null || echo unknown)
+
+# Step 2/3: only ever a clean fast-forward, never a merge. `--ff-only` itself refuses if this
+# turns out not to be one, which is the actual safety property this relies on, but check first so
+# we can print the manual recipe instead of a raw git error.
+merge_base=$(git merge-base HEAD "$upstream")
+local_ahead=$(git rev-list --count "$upstream..HEAD")
+if [ "$merge_base" != "$(git rev-parse "$upstream")" ] && [ "$local_ahead" -gt 0 ]; then
+  cat >&2 <<EOF
+lane upgrade: $branch has diverged from $upstream — not a clean fast-forward.
+This is the recipe from docs/troubleshooting.md ("Upgrade friction"); lane upgrade never attempts
+an automatic merge, only ever a fast-forward:
+
+  git add registry knowledge memory CLAUDE.md   # commit your own state first
+  git commit -m "my control plane"
+  git pull
+  # if .claude/settings.json conflicts (the usual one), resolve it in favour of upstream:
+  git checkout --theirs .claude/settings.json
+  git add .claude/settings.json
+  git commit
+  lane doctor
+  bash scripts/hooks/test-guard.sh
+EOF
+  exit 1
+fi
+
+if [ "$local_ahead" -gt 0 ]; then
+  # Shouldn't reach here given the check above, but be explicit rather than silent.
+  die "$branch has local commits not on $upstream — refusing to touch it automatically"
+fi
+
+if ! git merge --ff-only "$upstream"; then
+  cat >&2 <<EOF
+lane upgrade: fast-forward failed unexpectedly. This should not happen given the checks above —
+see the manual recipe in docs/troubleshooting.md ("Upgrade friction") and, if $branch's own
+.claude/settings.json is involved:
+
+  git checkout --theirs .claude/settings.json
+  git add .claude/settings.json
+  git commit
+EOF
+  exit 1
+fi
+
+new_head=$(git rev-parse HEAD)
+if [ "$old_head" = "$new_head" ]; then
+  echo "already up to date ($branch == $upstream, VERSION $old_version)"
+  exit 0
+fi
+
+new_version=$(cat "$AD/VERSION" 2>/dev/null || echo unknown)
+echo
+echo "upgraded: VERSION $old_version -> $new_version"
+
+# If registry/repos.yaml's on-disk format (or any other registry file) ever needs a one-off
+# transform between versions, it goes here, keyed off $old_version — nothing needs it yet, so
+# there is no migration machinery to skip or no-op through.
+
+echo
+echo "what changed (CHANGELOG.md):"
+# Reuse the same "## [x.y.z]" section shape scripts/release reads/writes, rather than
+# reinventing changelog parsing: print every dated section introduced between old_head and
+# new_head, oldest first. The diff is written to a temp file rather than piped, because a
+# heredoc's redirection would otherwise clobber a piped stdin on the same command.
+diff_file="${TMPDIR:-/tmp}/lane-upgrade-changelog-diff.$$"
+git diff "$old_head..$new_head" -- CHANGELOG.md > "$diff_file"
+python3 - "$diff_file" "$old_version" <<'PY' || true
+import re, sys
+diff_path, old = sys.argv[1], sys.argv[2]
+added = []
+with open(diff_path) as f:
+    for line in f:
+        if line.startswith("+") and not line.startswith("+++"):
+            added.append(line[1:])
+text = "".join(added)
+# Print whichever "## [x.y.z] ..." sections showed up as pure additions in the diff.
+for m in re.finditer(r"^## \[(\d+\.\d+\.\d+)\][^\n]*\n(.*?)(?=\n## \[|\Z)", text, re.M | re.S):
+    ver, body = m.group(1), m.group(2).strip("\n")
+    if ver == old:
+        continue
+    print(f"## [{ver}]")
+    print(body)
+    print()
+PY
+rm -f "$diff_file"
+
+echo
+echo "running lane doctor..."
+exec "$(dirname "$0")/hooks/guard-check"

@@ -376,6 +376,83 @@ if rows:
 PY
 fi
 
+# Is the `lane` on PATH actually this checkout? Piece 1 fixed `lane install` silently repointing
+# an existing symlink; this is how someone finds out they have a stale one, instead of hitting a
+# confusing symptom (wrong version, missing command) with no idea why. Advisory only.
+if [ "$QUIET" = 0 ]; then
+  found=$(command -v lane 2>/dev/null || true)
+  if [ -z "$found" ]; then
+    echo
+    echo "no \`lane\` found on PATH — run: lane install"
+  else
+    resolved=$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$found" 2>/dev/null)
+    if [ "$resolved" != "$AD/lane" ]; then
+      echo
+      echo "the installed \`lane\` command points at $resolved, not this checkout ($AD) — run: lane install"
+    fi
+  fi
+fi
+
+# Is `gh` around and authenticated? Informational only — it affects `lane sync`, `lane gh`, and
+# anything else that shells out to it, but nothing here runs it or fixes it.
+if [ "$QUIET" = 0 ]; then
+  if ! command -v gh >/dev/null 2>&1; then
+    echo
+    echo "gh is not installed — some commands (lane sync, lane gh) will not work until it is"
+  elif ! gh auth status >/dev/null 2>&1; then
+    echo
+    echo "gh is not authenticated — some commands (lane sync, lane gh) will not work until: gh auth login"
+  fi
+fi
+
+# Worktree-vs-spec-file drift: does what an active lane's own frontmatter says it contains
+# (repo:/branch: pairs) match what is actually checked out under lanes/<id>/ on disk? Reuses the
+# same frontmatter parsing as the stale-lane report above. Advisory only — names the lane and the
+# specific mismatch, never touches anything.
+if [ "$QUIET" = 0 ]; then
+python3 - "$AD" <<'PY'
+import os, re, subprocess, sys
+ad = sys.argv[1]
+lanes_dir = f"{ad}/registry/lanes"
+def git(d, *a):
+    try:
+        return subprocess.run(["git", "-C", d, *a], capture_output=True, text=True).stdout.strip()
+    except Exception:
+        return ""
+rows = []
+for f in sorted(os.listdir(lanes_dir) if os.path.isdir(lanes_dir) else []):
+    if not f.endswith(".md"):
+        continue
+    lid = f[:-3]
+    front = open(f"{lanes_dir}/{f}").read().split("\n---\n", 1)[0]
+    spec = {m.group(1): m.group(2)
+            for m in re.finditer(r"^  - repo: (\S+)\n    branch: (\S+)", front, re.M)}
+    if not spec:
+        continue
+    lane_dir = f"{ad}/lanes/{lid}"
+    on_disk = set(os.listdir(lane_dir)) if os.path.isdir(lane_dir) else set()
+    on_disk = {r for r in on_disk if os.path.isdir(f"{lane_dir}/{r}") and os.path.exists(f"{lane_dir}/{r}/.git")}
+    problems = []
+    for repo, branch in spec.items():
+        if repo not in on_disk:
+            problems.append(f"{repo}: in spec (branch {branch}) but missing on disk")
+            continue
+        actual = git(f"{lane_dir}/{repo}", "branch", "--show-current")
+        if actual and actual != branch:
+            problems.append(f"{repo}: spec says {branch}, worktree is on {actual}")
+    for repo in on_disk - set(spec):
+        problems.append(f"{repo}: checked out on disk but not listed in the spec")
+    if problems:
+        rows.append((lid, problems))
+if rows:
+    print()
+    print(f"{len(rows)} lane(s) where the spec and the worktree disagree:")
+    for lid, problems in rows:
+        for p in problems:
+            print(f"  {lid}: {p}")
+PY
+fi
+
 if [ "$VERBOSE" = 1 ]; then
   echo
   echo "the full suite (it builds its own throwaway control plane; your lanes are not touched):"
