@@ -1,7 +1,19 @@
 #!/usr/bin/env bash
-# lane-done <id> [--delete-branches]: requires clean, pushed worktrees. Removes worktrees, archives the file.
+# lane-done <id> [--delete-branches] [--delete-sessions|--keep-sessions]: requires clean, pushed
+# worktrees. Removes worktrees, archives the file, and asks what to do with each repo's leftover
+# Claude session folder (see registry/config.yml `lanes: delete_sessions_on_done:` for the default).
 source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
 id="${1:-}"; f=$(lane_file "$id"); [ -f "$f" ] || die "no lane '$id'"
+shift || true
+DELETE_BRANCHES=0; SESSIONS_MODE=""   # SESSIONS_MODE: "" (ask/report) | delete | keep
+for a in "$@"; do
+  case "$a" in
+    --delete-branches) DELETE_BRANCHES=1 ;;
+    --delete-sessions) SESSIONS_MODE=delete ;;
+    --keep-sessions) SESSIONS_MODE=keep ;;
+    *) die "lane done: unknown option $a" ;;
+  esac
+done
 # The README tells you to work from inside the lane, so the folder being removed below is
 # very often the current directory. Step out first: otherwise every later command prints
 # `getcwd: cannot access parent directories`, which reads like something went wrong.
@@ -35,10 +47,44 @@ if [ -n "$problems" ]; then
   exit 1
 fi
 
+# default answer for the interactive session-cleanup prompt below — config only ever changes
+# which way the prompt defaults, never whether it is asked
+CFG_DELETE=$(sed -n 's/^[[:space:]]*delete_sessions_on_done:[[:space:]]*//p' "$AD/registry/config.yml" 2>/dev/null | head -1 | tr -d '"'"'"' ')
+[ "$CFG_DELETE" = "true" ] || CFG_DELETE="false"
+
 # everything checked out; now it is safe to remove
+# fd 3 holds the real stdin: the loop below redirects its own stdin from lane_repos's output
+# (`< <(...)`), so a `read` for the session-delete prompt inside it must not use fd 0 — it would
+# read lane_repos's output instead of whatever the terminal (or pipe) actually sent.
+exec 3<&0
 while read -r repo branch; do d="$LANES/$id/$repo"; [ -d "$d" ] || continue
   git -C "$REPOS/$repo" worktree remove "$d" && echo "removed worktree $d"
-  [ "${2:-}" = "--delete-branches" ] && git -C "$REPOS/$repo" branch -D "$branch" && echo "deleted branch $branch"
+  [ "$DELETE_BRANCHES" = 1 ] && git -C "$REPOS/$repo" branch -D "$branch" && echo "deleted branch $branch"
+
+  sdir="$HOME/.claude/projects/$(claude_project_dir "$d")"
+  sn=0; [ -d "$sdir" ] && sn=$(ls "$sdir"/*.jsonl 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$sn" -gt 0 ] 2>/dev/null; then
+    case "$SESSIONS_MODE" in
+      delete) rm -rf "$sdir"; echo "deleted $sn session(s) for $repo" ;;
+      keep)   echo "kept $sn session(s) for $repo" ;;
+      "")
+        if [ -t 3 ] && [ -t 2 ]; then
+          if [ "$CFG_DELETE" = "true" ]; then
+            printf "  %s session(s) exist for %s in this lane. Delete them? [Y/n]: " "$sn" "$repo" >&2
+            read -r yn <&3 || true; case "${yn:-y}" in [nN]*) yn=n ;; *) yn=y ;; esac
+          else
+            printf "  %s session(s) exist for %s in this lane. Delete them? [y/N]: " "$sn" "$repo" >&2
+            read -r yn <&3 || true; case "${yn:-n}" in [yY]*) yn=y ;; *) yn=n ;; esac
+          fi
+          if [ "$yn" = y ]; then rm -rf "$sdir"; echo "deleted $sn session(s) for $repo"
+          else echo "kept $sn session(s) for $repo"; fi
+        else
+          # no terminal: an agent-driven `lane done` never deletes session history silently
+          echo "$sn session(s) exist for $repo, not touched — no terminal to ask"
+        fi
+        ;;
+    esac
+  fi
 done < <(lane_repos "$id")
 rmdir "$LANES/$id" 2>/dev/null || rm -rf "$LANES/$id"
 if sed -n '/^## Findings/,/^## Log/p' "$f" | grep -q '^- '; then

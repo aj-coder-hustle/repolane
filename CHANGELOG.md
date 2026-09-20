@@ -20,6 +20,12 @@ written down. Inside a git checkout it also says how far past the release tag yo
   without a human confirming). Protecting a file writes deny rules into `registry/rules.yaml`, the
   same mechanism described in [`docs/rules.md`](docs/rules.md#rules-of-your-own), so `lane doctor`
   verifies them the same way it verifies any other custom rule.
+- **`lane done` now asks what to do with a finished lane's Claude sessions.** Removing a
+  worktree left `~/.claude/projects/<slug>` behind forever, unreported. `lane init` now asks
+  (`registry/config.yml`'s `lanes: delete_sessions_on_done:`, default keep) which way the prompt
+  defaults, but the prompt itself is never skipped in an interactive run; `lane done <id>
+  --delete-sessions`/`--keep-sessions` answer it up front, and a non-interactive run (no
+  terminal — an agent driving `lane done`) never deletes, it only reports the count.
 
 ### Fixed
 

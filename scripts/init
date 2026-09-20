@@ -18,7 +18,7 @@ while [ -L "$_self" ]; do
 done
 AD="$(cd "$(dirname "$_self")/.." && pwd)"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
-OWNER=""; TRACKER=""; ASSUME_YES=0; CHECK_ONLY=0
+OWNER=""; TRACKER=""; ASSUME_YES=0; CHECK_ONLY=0; DELETE_SESSIONS_ON_DONE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -28,6 +28,7 @@ while [ $# -gt 0 ]; do
     --linear)  TRACKER="https://linear.app/${2:-}/issue/{key}"; shift 2 ;;
     --github)  TRACKER="https://github.com/${2:-}/issues/{key}"; shift 2 ;;
     --claude-home) CLAUDE_HOME="${2:-}"; shift 2 ;;
+    --delete-sessions-on-done) DELETE_SESSIONS_ON_DONE="${2:-}"; shift 2 ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     --check) CHECK_ONLY=1; shift ;;
     -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -159,6 +160,20 @@ if [ -z "$TRACKER" ] && [ "$ASSUME_YES" != 1 ]; then
   echo
 fi
 
+# Same style as the tracker question above: a default for a later prompt, not a switch that
+# skips it. `lane done` still asks every time it finds sessions to clean up — this only decides
+# which answer that prompt defaults to.
+if [ -z "$DELETE_SESSIONS_ON_DONE" ] && [ "$ASSUME_YES" != 1 ]; then
+  pick2=$(pick "When a lane finishes, delete its Claude sessions by default, or keep them?" \
+    "Keep them (default)" "Delete them")
+  case "${pick2:-1}" in
+    2) DELETE_SESSIONS_ON_DONE=true ;;
+    *) DELETE_SESSIONS_ON_DONE=false ;;
+  esac
+  echo
+fi
+[ -n "$DELETE_SESSIONS_ON_DONE" ] || DELETE_SESSIONS_ON_DONE=false
+
 echo "Setting up $(printf %s "$AD" | sed "s#^$HOME#~#") for $OWNER:"
 
 # ---------------------------------------------------------------- 3. folders and files
@@ -188,6 +203,10 @@ lanes:
   # with the one command that clears it out. Nothing is ever done automatically.
   # 0 turns the check off.
   stale_days: 21
+  # Default answer for the "delete this lane's Claude sessions?" prompt \`lane done\` shows when
+  # it finds any. This only changes which answer the prompt defaults to — it is always asked
+  # interactively, never skipped, because it is deciding whether to delete conversation history.
+  delete_sessions_on_done: $DELETE_SESSIONS_ON_DONE
 EOT
   made "registry/config.yml"
 fi

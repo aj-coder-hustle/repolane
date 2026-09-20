@@ -18,11 +18,16 @@ right now, and `lane help` for this list in your terminal.
 | `lane start <id> <repo> [<repo>…]` | start a piece of work: a branch and a worktree in each repo |
 | `lane resume <id>` | pick work back up |
 | `lane park <id> "<note>"` | leave work for later, with a note to your future self |
-| `lane done <id>` | finish and clean up — refuses while anything is dirty or unpushed |
+| `lane done <id> [--delete-branches] [--delete-sessions\|--keep-sessions]` | finish and clean up — refuses while anything is dirty or unpushed; asks what to do with each repo's leftover Claude sessions unless a flag says |
 | `lane with <id> <repo>` | add a repo to work already started |
 
 A lane id may carry a branch and a base per repo: `lane start ABC-123 web:feature/login api@release-2`
 checks out `feature/login` in `web` and branches `api` from `release-2`.
+
+`lane done` asks, per repo, whether to delete that repo's Claude sessions once its worktree is
+gone (`registry/config.yml`'s `lanes: delete_sessions_on_done:` only sets which answer it defaults
+to, never skips the question); `--delete-sessions`/`--keep-sessions` answer it up front, and a
+non-interactive run never deletes, only reports what it found.
 
 ## Seeing where things stand
 
