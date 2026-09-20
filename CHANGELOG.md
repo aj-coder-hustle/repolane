@@ -8,6 +8,10 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] — 2026-09-19
+
 ### Added
 
 - **`lane add` accepts a local checkout with no `origin` remote.** It used to die outright; it now
