@@ -44,6 +44,7 @@ map(){ case "$1" in
   secrets)     echo "$S/repo-secrets|declare a repo's secret/credential files: lane secrets <repo> scan|add|list" ;;
   sync)        echo "$S/lane-sync|check a repo's real GitHub branch protection: lane sync [repo]" ;;
   doctor)      echo "$S/hooks/guard-check|check the safety rules are working" ;;
+  upgrade)     echo "$S/lane-upgrade|take an update from upstream: lane upgrade" ;;
   import)      echo "$S/lane-import|bring past Claude conversations in (optional)" ;;
   nested)      echo "$S/lane-nested|find and repair nested worktrees" ;;
   menu)        echo "$S/menu|the long-form menu (needs bin/ on your PATH)" ;;
@@ -51,7 +52,7 @@ map(){ case "$1" in
   *)           return 1 ;;
 esac; }
 
-ORDER="init add import start resume park done status brief board find with run gh ref note merge plan sessions audit workspace env keys secrets sync doctor nested"
+ORDER="init add import start resume park done status brief board find with run gh ref note merge plan sessions audit workspace env keys secrets sync doctor upgrade nested"
 
 usage(){
   printf '\n  \e[1mlane\e[0m — one piece of work at a time, across all your repos\n\n'

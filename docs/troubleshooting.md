@@ -344,6 +344,12 @@ cloned is no longer a copy of the repository: `registry/` holds your repos and l
 is dirty by design, and taking an update from upstream is a real merge between upstream's code and
 your state.
 
+`lane upgrade` automates exactly the procedure below: it refuses if anything tracked outside
+`registry/`, `memory/`, `knowledge/`, `CLAUDE.md` and `.claude/settings.local.json` is dirty,
+fetches, and fast-forwards only if that's clean — never an automatic merge. If it isn't a clean
+fast-forward (real divergence, or a conflict) it stops and prints the manual steps below rather
+than attempting anything. Run the steps by hand whenever `lane upgrade` itself refuses.
+
 ### Before you pull
 
 Commit your own state, or you will be merging on top of uncommitted changes and it will be hard to

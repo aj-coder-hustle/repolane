@@ -8,7 +8,24 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`lane install` refuses or confirms before repointing an existing symlink**, instead of
+  silently repointing it. Running it again — a second checkout, a moved clone — used to relink
+  `dest/lane` with zero visibility into what it used to point at. A terminal now shows both paths
+  and asks; a non-interactive run (an agent, a script) refuses unless `--force` is passed.
+- **`lane doctor` checks three more things, advisory-only like its existing reports**: whether the
+  `lane` resolved on `PATH` actually points at this checkout (the exact bug the `lane install` fix
+  above surfaces, instead of a confusing downstream symptom), whether `gh` is installed and
+  authenticated (`lane sync`/`lane gh` need it), and whether each active lane's spec file
+  (`repo:`/`branch:`) still matches what's actually checked out under `lanes/<id>/` on disk.
+- **`lane upgrade`** automates the manual procedure documented in Troubleshooting's "Upgrade
+  friction" section: refuses if tracked files outside `registry/`, `memory/`, `knowledge/`,
+  `CLAUDE.md` and `.claude/settings.local.json` are dirty, fetches, and fast-forwards onto
+  upstream only when that's a clean fast-forward — any real divergence or conflict stops with the
+  same manual recipe (including the `.claude/settings.json` `git checkout --theirs` step) rather
+  than attempting a merge, which this deliberately never does. On success it prints the `VERSION`
+  delta and the `CHANGELOG.md` sections that landed, then runs `lane doctor`.
 
 ## [0.4.0] — 2026-09-20
 
