@@ -8,7 +8,7 @@ right now, and `lane help` for this list in your terminal.
 | | |
 |---|---|
 | `lane init` | set this machine up (safe to re-run) |
-| `lane add <git-url\|path> [name]` | bring a repo under management |
+| `lane add <git-url\|path> [name]` | bring a repo under management — a local checkout with no `origin` remote is registered as local-only |
 | `lane import` | bring past Claude conversations in (optional) |
 
 ## Doing the work

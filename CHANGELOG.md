@@ -8,7 +8,11 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`lane add` accepts a local checkout with no `origin` remote.** It used to die outright; it now
+  registers the repo as local-only (`origin: (local-only)` in `registry/repos.yaml`) and says so,
+  including how to add one later: `git -C repos/<name> remote add origin <url>`.
 
 ## [0.1.0] — 2026-09-18
 

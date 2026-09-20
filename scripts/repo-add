@@ -2,6 +2,8 @@
 # repo-add <git-url|path-to-existing-checkout> [name] [--local <path-you-already-have>]
 # Brings a repo under management at any time: clone (or copy an existing checkout's .git), register in
 # registry/repos.yaml, create memory/<name>, and point the repo's Claude project memory at it.
+# A local checkout with no origin remote is registered as local-only — no push/fetch/PR features
+# until an origin is added with: git -C repos/<name> remote add origin <url>.
 source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
 url="${1:-}"; [ -n "$url" ] || die "usage: repo-add <git-url|path-to-existing-checkout> [name]"
 name="${2:-}"; [ "${name#--}" != "$name" ] && name=""
@@ -14,11 +16,18 @@ given_local=""; for ((i=1;i<=$#;i++)); do [ "${!i}" = "--local" ] && j=$((i+1)) 
 if [ -z "$from" ] && [ -d "$url" ] && { [ -d "$url/.git" ] || [ -f "$url/.git" ]; }; then
   from="$(cd "$url" && pwd)"
   origin="$(git -C "$from" remote get-url origin 2>/dev/null || true)"
-  [ -n "$origin" ] || die "$from has no origin remote — pass the git url instead"
-  url="$origin"
-  echo "using the checkout at $from (origin: $url)"
+  if [ -n "$origin" ]; then
+    url="$origin"
+    echo "using the checkout at $from (origin: $url)"
+  else
+    url=""
+    echo "using the checkout at $from (no origin remote — registering as local-only: no push/fetch/PR features until one is added with: git -C repos/<name> remote add origin <url>)"
+  fi
 fi
-[ -n "$name" ] || name=$(basename "$url" .git)
+if [ -n "$name" ]; then :
+elif [ -n "$url" ]; then name=$(basename "$url" .git)
+else name=$(basename "$from")
+fi
 local_path="${from:-$given_local}"
 # Added from a url? Then ask, once, whether a checkout of it already exists on this machine.
 # Answering is optional; it is how past conversations about the repo get recognised later.
@@ -44,9 +53,10 @@ python3 - "$AD/registry/repos.yaml" "$name" "$url" "$def" "$local_path" <<'PY'
 import sys; p,name,url,default,frm=sys.argv[1:]
 t=open(p).read()
 if f"\n  {name}:\n" in t: sys.exit(0)
+origin_line = url if url else "(local-only)"
 entry=f"""  {name}:
     path: repos/{name}
-    origin: {url}
+    origin: {origin_line}
     default_branch: {default}
     stack: []
     product: (fill in)
