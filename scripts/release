@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# release <x.y.z>  — cut a release: move ## [Unreleased] into a dated section, bump VERSION,
+# and regenerate every reference-style link at the bottom of CHANGELOG.md from scratch (never
+# appended piecemeal, which is how the [0.2.0] link went missing the one time this was done by
+# hand — see CHANGELOG.md's own [0.2.0] entry). Commits the result; does not tag or push.
+set -euo pipefail
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+
+new="${1:-}"
+[[ "$new" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "usage: release <x.y.z>  (e.g. release 0.3.0)"
+
+cur=$(cat "$AD/VERSION")
+python3 - "$AD" "$new" "$cur" <<'PY'
+import re, sys, subprocess, datetime
+AD, new, cur = sys.argv[1:]
+
+def semver(v): return tuple(int(p) for p in v.split(".")[:3])
+if semver(new) <= semver(cur):
+    sys.exit(f"release: {new} is not newer than the current VERSION ({cur})")
+
+path = f"{AD}/CHANGELOG.md"
+text = open(path).read()
+
+m = re.search(r"^## \[Unreleased\]\n(.*?)(?=\n## \[)", text, re.M | re.S)
+if not m:
+    sys.exit("release: no ## [Unreleased] section found")
+body = m.group(1).strip("\n")
+if body in ("", "Nothing yet."):
+    sys.exit("release: ## [Unreleased] has nothing in it — nothing to release")
+
+today = datetime.date.today().isoformat()
+new_section = f"## [Unreleased]\n\nNothing yet.\n\n## [{new}] — {today}\n\n{body}\n"
+text = text[:m.start()] + new_section + text[m.end():]
+
+# every existing release heading, oldest last, so the newest-first order in the file is kept
+versions = re.findall(r"^## \[(\d+\.\d+\.\d+)\][^\n]*$", text, re.M)
+if versions[0] != new:
+    sys.exit(f"release: internal error — expected {new} first, got {versions[0]}")
+
+repo = "https://github.com/aj-oss-tools/repolane"
+links = [f"[Unreleased]: {repo}/compare/v{new}...HEAD"]
+for i, v in enumerate(versions):
+    prev = versions[i + 1] if i + 1 < len(versions) else None
+    links.append(f"[{v}]: {repo}/compare/v{prev}...v{v}" if prev else f"[{v}]: {repo}/releases/tag/v{v}")
+
+text = re.sub(r"\n\[Unreleased\]:.*$", "", text, flags=re.S).rstrip("\n") + "\n\n" + "\n".join(links) + "\n"
+open(path, "w").write(text)
+open(f"{AD}/VERSION", "w").write(new + "\n")
+print(f"CHANGELOG.md: [Unreleased] -> [{new}] — {today}; VERSION: {cur} -> {new}")
+print(f"{len(links)} reference link(s) regenerated")
+PY
+
+echo "Run the guard's test suite and review the diff before committing:"
+echo "  git -C \"$AD\" diff CHANGELOG.md VERSION"
+echo "  git -C \"$AD\" add CHANGELOG.md VERSION && git -C \"$AD\" commit -m 'release $new'"
+echo "  git -C \"$AD\" tag -a v$new -m v$new"

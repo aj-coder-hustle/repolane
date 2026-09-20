@@ -81,11 +81,19 @@ folder's README should still be true afterwards. User-visible changes belong in
 
 1. Open an issue first if it is a design change or a new rule. For a bug or an obvious fix, go
    straight to a pull request.
-2. Fork, and branch from `main`.
+2. Fork, and branch from `release` — **not `main`.** `main` only ever moves by a "Release
+   vX.Y.Z" PR merging in from `release`, opened automatically once something lands there; direct
+   pushes to `main` are refused, even for the maintainer, outside an explicit override.
 3. Make the change. Match the surrounding style: `set -u`, explicit error paths, comments that
    explain *why* rather than restating the line below them.
 4. Run `bash scripts/hooks/test-guard.sh`, and `lane doctor` if you have the clone set up.
-5. Open the pull request. Say what changed and why, and whether the suite still passes.
+5. Open the pull request against `release`. Say what changed and why, and whether the suite still
+   passes. If the change is user-visible, add an entry under `## [Unreleased]` in
+   [`CHANGELOG.md`](CHANGELOG.md) — merging into `release` is what makes that section non-empty,
+   which is what triggers the automatic version bump (see
+   [`.github/workflows/release-plan.yml`](.github/workflows/release-plan.yml): the bump type comes
+   from which headings — `### Added`, `### Fixed`, `### Removed` — are actually used, not from a
+   commit-message convention).
 
 Keep pull requests to one thing. A guard rule and a board tweak are two pull requests.
 

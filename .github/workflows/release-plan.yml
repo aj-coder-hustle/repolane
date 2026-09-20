@@ -1,0 +1,70 @@
+name: Plan a release from the release branch
+
+# Feature branches merge into `release` freely, no gate. A push to `release` is the signal
+# that whatever landed there is meant to ship: this workflow reads ## [Unreleased] in
+# CHANGELOG.md, picks the version bump from the section headers already there (see
+# scripts/release-plan), commits CHANGELOG.md + VERSION back to `release`, and opens the PR
+# into `main` that IS the actual release action — merging it is what tags the version and
+# triggers notify-site.yml.
+#
+# If ## [Unreleased] is empty (nothing new since the last release), this is a no-op: no
+# commit, no PR. Safe to merge several feature branches into `release` before triggering one.
+
+on:
+  push:
+    branches: [release]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release
+          fetch-depth: 0
+
+      - name: Configure git identity for the release commit
+        run: |
+          git config user.name "repolane-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+
+      - name: Compute the version and rewrite CHANGELOG.md / VERSION
+        id: plan
+        run: |
+          out=$(bash scripts/release-plan)
+          echo "$out"
+          if echo "$out" | grep -q "nothing to release"; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Run the guard's test suite against the planned release
+        if: steps.plan.outputs.should_release == 'true'
+        run: bash scripts/hooks/test-guard.sh
+
+      - name: Commit the version bump to release
+        if: steps.plan.outputs.should_release == 'true'
+        run: |
+          git add CHANGELOG.md VERSION
+          git commit -m "release ${{ steps.plan.outputs.version }}"
+          git push origin release
+
+      - name: Open (or update) the PR into main
+        if: steps.plan.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v="${{ steps.plan.outputs.version }}"
+          if gh pr list --base main --head release --state open --json number -q '.[0].number' | grep -q .; then
+            gh pr edit "$(gh pr list --base main --head release --state open --json number -q '.[0].number')" \
+              --title "Release v$v"
+          else
+            gh pr create --base main --head release --title "Release v$v" \
+              --body "Auto-generated from \`## [Unreleased]\` in CHANGELOG.md. Merging this tags v$v and triggers the site's changelog rebuild."
+          fi

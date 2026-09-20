@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# release-plan  — used by .github/workflows/release-plan.yml. Reads ## [Unreleased] in
+# CHANGELOG.md, picks a semver bump from the section headers already in use there (no new
+# commit convention needed — Added/Fixed/Changed/Removed already describe every change made
+# in this repo), computes the next version from VERSION, and runs scripts/release with it.
+# Exits 0 and prints nothing to release if Unreleased is empty — the workflow treats that as
+# "nothing to release" and does not open a PR.
+set -euo pipefail
+source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
+
+cur=$(cat "$AD/VERSION")
+section=$(awk '/^## \[Unreleased\]/{f=1;next} /^## \[/{f=0} f' "$AD/CHANGELOG.md")
+body=$(printf '%s' "$section" | sed '/^[[:space:]]*$/d')
+
+if [ -z "$body" ] || [ "$body" = "Nothing yet." ]; then
+  echo "release-plan: ## [Unreleased] is empty — nothing to release"
+  exit 0
+fi
+
+# Bump from the headers already in the Unreleased section, not a separate commit convention:
+#   a "### Removed" section, or the literal word BREAKING anywhere in it       -> major
+#   a "### Added" section (new capability)                                     -> minor
+#   otherwise (only ### Fixed / ### Changed / ### Security / ### Deprecated)   -> patch
+if printf '%s' "$section" | grep -qE '^### Removed|BREAKING'; then kind=major
+elif printf '%s' "$section" | grep -q '^### Added'; then kind=minor
+else kind=patch
+fi
+
+IFS=. read -r major minor patch <<<"$cur"
+case "$kind" in
+  major) new="$((major+1)).0.0" ;;
+  minor) new="$major.$((minor+1)).0" ;;
+  patch) new="$major.$minor.$((patch+1))" ;;
+esac
+
+echo "release-plan: $cur -> $new ($kind, from the Unreleased section's own headers)"
+"$AD/scripts/release" "$new"
