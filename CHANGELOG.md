@@ -15,6 +15,17 @@ written down. Inside a git checkout it also says how far past the release tag yo
   commands (can `source scripts/lib.sh` itself), listed in `lane help` under "your commands:",
   and flagged by `lane doctor` if a name collides with — and is therefore shadowed by — a real
   built-in. See [`docs/extending.md`](docs/extending.md).
+- **`lane rules pull`**: a shared, git-backed source for `registry/rules.yaml`-style rules and
+  `scripts/local/` scripts, for a team that wants the same guard rules everywhere. SHA-pinned —
+  a plain re-pull re-verifies the pin and refuses to advance past it, `lane rules pull --latest`
+  is required to intentionally move; files are always copied, never symlinked, into
+  `registry/rules.shared.yaml` (a separate file from `registry/rules.yaml`, never merged into
+  it) and `scripts/local/`; rule ids are namespaced to the shared repo. `guard.py`'s
+  `load_rules()` now unions every `registry/rules.*.yaml` file through the identical
+  parse/validate/deny-only path, so a shared rule is checked exactly like a local one. `lane
+  doctor` gets a new, more prominent advisory when the pinned SHA has drifted from the shared
+  repo's real HEAD. `lane rules status` inspects the configured source without changing
+  anything. See [`docs/extending.md`](docs/extending.md).
 
 ## [0.5.0] — 2026-09-20
 

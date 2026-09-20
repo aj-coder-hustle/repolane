@@ -2,7 +2,7 @@
 """lane hook dispatcher. Configured in the control plane/.claude/settings.json; runs for every session
 launched at the control plane root, including after EnterWorktree moved the session into lanes/<id>/<repo>.
 Reads the hook JSON on stdin, decides by hook_event_name. Fails open (exit 0) on unexpected input."""
-import fnmatch, json, os, re, subprocess, sys, datetime
+import fnmatch, glob, json, os, re, subprocess, sys, datetime
 
 AD = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))  # lane, wherever the session was launched
 
@@ -160,6 +160,11 @@ def protected_branches(cwd, cur, cmd):
 # built-ins. There is no syntax for granting anything — the only thing the code below can do with
 # a rule is call deny(), so a rules file can tighten this guard and never loosen it.
 RULES_FILE = f"{AD}/registry/rules.yaml"
+# Every registry/rules.*.yaml file is read and unioned the same way RULES_FILE is — in
+# particular registry/rules.shared.yaml, which `lane rules pull` (docs/extending.md) writes with
+# rules copied, SHA-pinned, from a shared git repo. There is deliberately no special-casing here:
+# a shared-sourced rule goes through the exact same parsing/validation/deny-only enforcement as
+# one you typed by hand, so a malformed or broken one is caught by `lane doctor` the same way.
 
 def _unquote(s):
     s = s.strip()
@@ -227,32 +232,38 @@ def parse_rules(text):
 
 def load_rules():
     """(rules, complaints). A rule that cannot be trusted is never enforced — and never silent:
-    the complaint goes to stderr from the hook and is a failure in `lane doctor`."""
-    if not os.path.exists(RULES_FILE): return [], []
-    try: text = open(RULES_FILE).read()
-    except OSError as e: return [], [f"registry/rules.yaml cannot be read ({e.__class__.__name__})"]
-    try: raw = parse_rules(text)
-    except ValueError as e: return [], [f"registry/rules.yaml is malformed — {e}"]
-    if not isinstance(raw, list): return [], ["registry/rules.yaml: `rules:` has to be a list of rules"]
+    the complaint goes to stderr from the hook and is a failure in `lane doctor`. Reads every
+    registry/rules.*.yaml file (registry/rules.yaml plus, e.g., registry/rules.shared.yaml) and
+    unions them through the identical parse/validate path — no file is trusted any differently."""
+    files = sorted(glob.glob(f"{AD}/registry/rules.*.yaml"))
+    if os.path.exists(RULES_FILE) and RULES_FILE not in files:
+        files = [RULES_FILE] + files
     good, bad = [], []
-    for i, r in enumerate(raw, 1):
-        rid = r.get("id") or f"the rule at position {i}"
-        w = r.get("when")
-        if not isinstance(w, dict) or not w.get("tool"):
-            bad.append(f"{rid}: needs `when: {{ tool: <ToolName>, matches|path: … }}`"); continue
-        if not w.get("matches") and not w.get("path"):
-            bad.append(f"{rid}: `when` needs either `matches:` (a command pattern) or `path:` (a glob)"); continue
-        if w.get("matches") and w.get("path"):
-            bad.append(f"{rid}: `matches` and `path` in one rule — write two rules, so each refusal says one thing"); continue
-        if not r.get("deny"):
-            bad.append(f"{rid}: no `deny:` — a rule has to say, in a sentence, what to do instead"); continue
-        if not r.get("ref"):
-            bad.append(f"{rid}: no `ref:` — a refusal nobody can check is a refusal that gets routed around. "
-                       f"Point it at what it is enforcing (memory/…, docs/…, a runbook)."); continue
-        if w.get("matches"):
-            try: re.compile(w["matches"])
-            except re.error as e: bad.append(f"{rid}: `matches` is not a valid regular expression ({e})"); continue
-        good.append(r)
+    for path in files:
+        label = os.path.relpath(path, AD)
+        try: text = open(path).read()
+        except OSError as e: bad.append(f"{label} cannot be read ({e.__class__.__name__})"); continue
+        try: raw = parse_rules(text)
+        except ValueError as e: bad.append(f"{label} is malformed — {e}"); continue
+        if not isinstance(raw, list): bad.append(f"{label}: `rules:` has to be a list of rules"); continue
+        for i, r in enumerate(raw, 1):
+            rid = r.get("id") or f"the rule at position {i} in {label}"
+            w = r.get("when")
+            if not isinstance(w, dict) or not w.get("tool"):
+                bad.append(f"{rid}: needs `when: {{ tool: <ToolName>, matches|path: … }}`"); continue
+            if not w.get("matches") and not w.get("path"):
+                bad.append(f"{rid}: `when` needs either `matches:` (a command pattern) or `path:` (a glob)"); continue
+            if w.get("matches") and w.get("path"):
+                bad.append(f"{rid}: `matches` and `path` in one rule — write two rules, so each refusal says one thing"); continue
+            if not r.get("deny"):
+                bad.append(f"{rid}: no `deny:` — a rule has to say, in a sentence, what to do instead"); continue
+            if not r.get("ref"):
+                bad.append(f"{rid}: no `ref:` — a refusal nobody can check is a refusal that gets routed around. "
+                           f"Point it at what it is enforcing (memory/…, docs/…, a runbook)."); continue
+            if w.get("matches"):
+                try: re.compile(w["matches"])
+                except re.error as e: bad.append(f"{rid}: `matches` is not a valid regular expression ({e})"); continue
+            good.append(r)
     return good, bad
 
 def _path_cands(given, cwd):

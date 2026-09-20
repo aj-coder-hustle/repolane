@@ -30,6 +30,11 @@ tracker:
 If `name` is missing or still says `YOUR NAME`, everything falls back to "the user", so a fresh
 clone that nobody has configured still reads sensibly.
 
+An advanced, opt-in `shared_rules:` block (`url:`, `pinned_sha:`) is written by `lane rules pull`
+— see [`docs/extending.md`](../docs/extending.md). `lane init` never adds it and never asks about
+it; a maintainer sets it up deliberately. It feeds `registry/rules.shared.yaml` (gitignored, like
+`rules.yaml`) and `registry/.shared-cache/` (also gitignored — the pulled repo's own clone).
+
 ## `repos.yaml`
 
 Written by `lane add`. One block per repo:
