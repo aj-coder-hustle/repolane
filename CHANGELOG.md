@@ -10,6 +10,19 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 Nothing yet.
 
+## [0.4.0] — 2026-09-20
+
+### Added
+
+- **`lane doctor` flags repos with undeclared candidate secret/credential files.** `lane secrets
+  scan|add|list` already let a repo declare filenames the guard's built-in pattern misses
+  (`.npmrc`, `id_rsa`, `service-account.json`, ...), but nothing ever prompted you to actually run
+  it — a repo added before the feature existed, or where the prompt was declined, sat with zero
+  per-repo protection, silently. `lane doctor` now re-runs the same local, no-network scan every
+  time and lists any repo with candidates nobody has declared, with the exact command to fix it —
+  same advisory-only philosophy as the stale-lane and branch-protection-sync reports, and simpler
+  than both since a local filesystem scan needs no staleness window at all.
+
 ## [0.3.0] — 2026-09-20
 
 ### Added
@@ -172,7 +185,8 @@ paths that get walked every day.
   the board fetches its typefaces from Google Fonts, so "no network calls beyond its own server" was
   false; [`docs/board.md`](docs/board.md) now says so, and how to remove them.
 
-[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/aj-oss-tools/repolane/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/aj-oss-tools/repolane/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/aj-oss-tools/repolane/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/aj-oss-tools/repolane/compare/v0.1.0...v0.2.0
