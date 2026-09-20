@@ -89,6 +89,35 @@ if [ -d "$proj/memory" ] && [ ! -L "$proj/memory" ]; then cp -an "$proj/memory/.
 [ -L "$proj/memory" ] || ln -s "$AD/memory/$name" "$proj/memory"
 echo "registered $name (default $def); memory -> memory/$name. Edit registry/repos.yaml: stack/product."
 
+# guard.py already denies a fixed set of secret-shaped filenames globally; every repo can also have
+# its own (service-account.json, .npmrc, id_rsa, …) that set was never going to cover. Scan by
+# filename only, never contents.
+candidates=$("$AD/scripts/repo-secrets" scan "$name" 2>/dev/null || true)
+if [ -n "$candidates" ]; then
+  if [ -t 0 ] && [ -t 2 ]; then
+    echo
+    echo "  candidate secret/credential file(s) found in $name:"
+    echo "$candidates" | sed 's/^/    /'
+    printf "  protect these as secret files? [Y/n]: " >&2
+    read -r yn || true
+    case "${yn:-y}" in
+      [nN]*) echo "  skipped — declare them later: lane secrets $name add <path>..." ;;
+      *)
+        mapfile -t cand_arr <<< "$candidates"
+        "$AD/scripts/repo-secrets" add "$name" "${cand_arr[@]}"
+        ;;
+    esac
+  else
+    # No tty: this is the agent-driven path. Never add silently — an AI agent driving `lane add`
+    # must be told about candidates and must not have them protected without a human confirming,
+    # the same principle behind every other guard behaviour in this repo.
+    n=$(echo "$candidates" | wc -l | tr -d ' ')
+    echo
+    echo "  $n candidate secret/credential file(s) found in $name — review and declare them: lane secrets $name add <path>..."
+    echo "$candidates" | sed 's/^/    /'
+  fi
+fi
+
 # Past conversations live under the folder they ran in. If we know that folder, say what is there.
 if [ -n "$local_path" ]; then
   oldslug=$(printf '%s' "$local_path" | sed 's#[/_]#-#g')

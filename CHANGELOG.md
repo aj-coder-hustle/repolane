@@ -13,6 +13,13 @@ written down. Inside a git checkout it also says how far past the release tag yo
 - **`lane add` accepts a local checkout with no `origin` remote.** It used to die outright; it now
   registers the repo as local-only (`origin: (local-only)` in `registry/repos.yaml`) and says so,
   including how to add one later: `git -C repos/<name> remote add origin <url>`.
+- **`lane secrets <repo> scan|add|list`.** Every repo can have its own credential filenames beyond
+  the built-in `.env`/`.pem`/`credentials.json` set the guard already denies globally. `lane add`
+  now scans a newly added repo by filename only (never contents) and either prompts to protect the
+  candidates it finds (interactive) or reports them for review (agent-driven, so nothing is added
+  without a human confirming). Protecting a file writes deny rules into `registry/rules.yaml`, the
+  same mechanism described in [`docs/rules.md`](docs/rules.md#rules-of-your-own), so `lane doctor`
+  verifies them the same way it verifies any other custom rule.
 
 ## [0.1.0] — 2026-09-18
 

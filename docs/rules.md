@@ -118,6 +118,24 @@ mean it, the command says so in a form you can see:
 `git push origin HEAD:deploy/staging` is refused; the same command behind
 `ALLOW_DEPLOY_PUSH=1` is not.
 
+### Per-repo secret files
+
+`is_secret()` denies a fixed set of shapes — `.env*`, `*.pem`/`*.key`/`*.p12`/`*.pfx`,
+`*credentials*.json`, `secrets.json`/`.yaml`/`.toml` — across every repo, for the file tools and for
+Bash commands that name them. That set cannot grow to cover every project's own credential
+filenames (`service-account.json`, `.npmrc`, `id_rsa`, `.aws/credentials`, `apikey.txt`, …) without
+becoming unbounded, so those are declared per repo instead, using the exact mechanism above.
+
+`lane add` scans a newly added repo for filename patterns that look like credentials beyond the
+built-in set — by filename only, never by reading contents. Run interactively, it prints what it
+found and asks whether to protect them. Run without a terminal (an AI agent driving `lane add`),
+it only reports the candidates for a human to review — nothing is ever added without someone
+confirming, the same principle behind every other guard behaviour in this repo. Protecting a file
+calls `lane secrets <repo> add <path>`, which writes six deny rules into `registry/rules.yaml` (one
+each for `Read`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, and `Bash`) — so `lane doctor` checks
+them the same way it checks any other rule of your own. `lane secrets <repo> scan` and
+`lane secrets <repo> list` run the scan, or list what is already declared, on their own.
+
 ### When the file is wrong
 
 A rule with no `ref`, no `deny`, an unparseable `when`, or a `matches` that is not a valid regular

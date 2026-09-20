@@ -69,6 +69,7 @@ Nothing is written silently. Claude drafts the memory, then asks whether it belo
 | `lane workspace` | write an editor workspace file for the active lanes |
 | `lane env [id]` | check each worktree's `.env` files are linked in — names only, never values |
 | `lane keys <path>` | list the key names in an env file, never the values |
+| `lane secrets <repo> scan\|add\|list` | declare a repo's own secret/credential filenames, beyond the built-in set |
 
 `lane doctor` is the one to run when something feels wrong. It compiles the guard, fires nine
 named probes at it and prints each verdict — eight that must be refused and one ordinary command
