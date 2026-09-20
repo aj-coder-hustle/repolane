@@ -8,6 +8,10 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.1] — 2026-09-20
+
 ### Fixed
 
 - **The guard's default-branch protection (push, force-push, delete/move) only ever recognised
@@ -153,6 +157,7 @@ paths that get walked every day.
   the board fetches its typefaces from Google Fonts, so "no network calls beyond its own server" was
   false; [`docs/board.md`](docs/board.md) now says so, and how to remove them.
 
-[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/aj-oss-tools/repolane/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/aj-oss-tools/repolane/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/aj-oss-tools/repolane/releases/tag/v0.1.0
