@@ -206,7 +206,7 @@ fi
 # 4. Copy. The lane folder is where you will run `claude`, so that is where
 #    the conversations have to live. Originals are never touched.
 # ---------------------------------------------------------------------------
-dest_slug=$(printf '%s' "$AD/lanes/$INTO" | sed 's#[/_]#-#g')
+dest_slug=$(claude_project_dir "$AD/lanes/$INTO")
 dest="$PROJ/$dest_slug"
 mkdir -p "$dest"
 copied=0; skipped=0

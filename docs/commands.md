@@ -32,7 +32,7 @@ checks out `feature/login` in `web` and branches `api` from `release-2`.
 | `lane brief <id>` | catch up on one piece of work |
 | `lane board` | the same thing in a browser |
 | `lane audit` | branches that look finished or stale |
-| `lane sessions <repo\|id>` | past Claude conversations |
+| `lane sessions <repo\|id>` | past Claude conversations — for a repo, unions every live and finished lane worktree, and notes conversations still sitting at its pre-Repolane checkout, not yet `lane import`ed |
 | `lane find <text>` | which lane touched this file, branch, commit or note |
 
 ## Reaching into a repo

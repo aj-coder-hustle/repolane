@@ -23,6 +23,12 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ### Fixed
 
+- **`lane sessions <repo>` was checking a folder that can never have sessions in it.** It looked
+  under the slug for `repos/<repo>` — the mirror — but Claude Code is never launched there (the
+  guard refuses `cd`-ing into it). It now unions every live lane worktree for the repo, every
+  finished lane's worktree (reconstructed from the archived lane file even though the folder is
+  gone), and notes separately how many conversations still sit at the repo's pre-Repolane
+  checkout (`old_paths:`), not yet brought in with `lane import`.
 - **`pref`-scoped memory was written but never read back into a session.** `lane-memory file <slug>
   pref` correctly appended to `knowledge/preferences.md`, but `memory_brief()` in
   `scripts/hooks/guard.py` never read that file, so the most durable scope — meant to apply to

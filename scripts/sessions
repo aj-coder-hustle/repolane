@@ -2,14 +2,45 @@
 # sessions <repo|lane-id> [n]  — list resumable Claude conversations for a repo (newest first)
 source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
 key="${1:-}"; n="${2:-10}"; [ -n "$key" ] || die "usage: sessions <repo|lane-id> [n]"
-repo="$key"; [ -d "$REPOS/$repo" ] || repo=$(lane_repos "$key" 2>/dev/null | head -1 | cut -d' ' -f1)
-[ -n "$repo" ] && [ -d "$REPOS/$repo" ] || die "unknown repo/lane '$key'"
-proj="$HOME/.claude/projects/$(echo "$REPOS/$repo" | sed 's#[/_]#-#g')"
-python3 - "$proj" "$n" "$repo" <<'PY'
+
+# A lane id resolves to exactly one worktree — no union needed, current behaviour unchanged.
+if ! [ -d "$REPOS/$key" ]; then
+  repo=$(lane_repos "$key" 2>/dev/null | head -1 | cut -d' ' -f1)
+  [ -n "$repo" ] && [ -d "$REPOS/$repo" ] || die "unknown repo/lane '$key'"
+  projs=("$HOME/.claude/projects/$(claude_project_dir "$LANES/$key/$repo")")
+  old_n=0; old_path=""
+else
+  repo="$key"
+  # Three sources of sessions for a repo, none of which is the mirror (repos/<repo> is never a
+  # session cwd — the guard refuses cd-ing into it):
+  #   1. every live lane worktree that has this repo
+  #   2. every finished lane's worktree path, reconstructed even though the folder is gone
+  #   3. the repo's pre-Repolane old checkout, if any (registry/repos.yaml old_paths:) — reported
+  #      separately, since those sessions are not directly resumable from a lane worktree
+  declare -a projs=()
+  for lf in "$LANES_DIR"/*.md "$LANES_DIR"/done/*.md; do
+    [ -f "$lf" ] || continue
+    id=$(basename "$lf" .md)
+    while read -r r b; do
+      [ "$r" = "$repo" ] || continue
+      projs+=("$HOME/.claude/projects/$(claude_project_dir "$LANES/$id/$repo")")
+    done < <(sed -n '/^---$/,/^---$/p' "$lf" | awk '/^  - repo:/{r=$3} /^    branch:/{print r, $2}')
+  done
+  # source #3: the pre-Repolane checkout this repo was added from, if any
+  old_path=$(sed -n "/^  $repo:\$/,/^  [a-z]/p" "$AD/registry/repos.yaml" | sed -n 's/^      - //p' | head -1)
+  old_n=0
+  if [ -n "$old_path" ]; then
+    olddir="$HOME/.claude/projects/$(claude_project_dir "$old_path")"
+    [ -d "$olddir" ] && old_n=$(ls "$olddir"/*.jsonl 2>/dev/null | wc -l | tr -d ' ')
+  fi
+fi
+python3 - "$n" "$repo" "${projs[@]}" <<'PY'
 import sys,os,json,glob,datetime
-proj,n,repo=sys.argv[1],int(sys.argv[2]),sys.argv[3]
+n,repo=int(sys.argv[1]),sys.argv[2]
+projs=sys.argv[3:]
 rows=[]
-for f in glob.glob(f"{proj}/*.jsonl"):
+for proj in projs:
+ for f in glob.glob(f"{proj}/*.jsonl"):
     sid=os.path.basename(f)[:-6]; first=None; last=os.path.getmtime(f); turns=0
     with open(f) as fh:
         for l in fh:
@@ -29,3 +60,6 @@ for last,sid,turns,first in rows[:n]:
     print(f"  {datetime.datetime.fromtimestamp(last):%Y-%m-%d %H:%M}  {sid}  {turns:>3} turns  {first}")
 if not rows: print("  none")
 PY
+if [ "${old_n:-0}" -gt 0 ] 2>/dev/null; then
+  echo "  $old_n more conversation(s) at the original checkout ($old_path), not yet imported — bring them in with: lane import"
+fi

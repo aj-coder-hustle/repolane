@@ -27,6 +27,10 @@ repo_default(){
   echo "$b"
 }
 repo_exists(){ [ -d "$REPOS/$1/.git" ] || die "unknown repo '$1' (see registry/repos.yaml)"; }
+# Claude Code keeps per-project data under ~/.claude/projects/<path with / and _ turned into ->.
+# Every script that needs to find or write that folder for some absolute path uses this, so the
+# slugging rule only lives in one place.
+claude_project_dir(){ printf '%s' "$1" | sed 's#[/_]#-#g'; }
 lane_file(){ echo "$LANES_DIR/$1.md"; }
 # yaml-ish frontmatter reader: value of "key:" in the lane file
 lane_get(){ sed -n '/^---$/,/^---$/p' "$(lane_file "$1")" | sed -n "s/^$2: *//p" | head -1; }
