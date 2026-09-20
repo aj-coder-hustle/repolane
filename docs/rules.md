@@ -181,3 +181,9 @@ than `protection: sync_days` (`registry/config.yml`, 7 days by default; `0` turn
 listed with `lane sync <repo>` to clear it. `lane sync` is never run for you — not by `lane
 doctor`, not by `lane start`/`lane resume` — it is a manual, always-available command, so nothing
 that "starts work" ever blocks on a network call to GitHub.
+
+And a fourth: repos with a candidate secret/credential filename (`scripts/repo-secrets scan`'s
+patterns — `.npmrc`, `id_rsa`, `service-account.json` and the rest, see
+["Rules of your own"](#rules-of-your-own) above) that nobody has declared with `lane secrets
+<repo> add`. Unlike the other three, this needs no staleness window at all — it is a plain local
+filesystem scan, cheap enough to re-run on every `lane doctor`, so it is always current.

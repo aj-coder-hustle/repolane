@@ -8,7 +8,16 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`lane doctor` flags repos with undeclared candidate secret/credential files.** `lane secrets
+  scan|add|list` already let a repo declare filenames the guard's built-in pattern misses
+  (`.npmrc`, `id_rsa`, `service-account.json`, ...), but nothing ever prompted you to actually run
+  it — a repo added before the feature existed, or where the prompt was declined, sat with zero
+  per-repo protection, silently. `lane doctor` now re-runs the same local, no-network scan every
+  time and lists any repo with candidates nobody has declared, with the exact command to fix it —
+  same advisory-only philosophy as the stale-lane and branch-protection-sync reports, and simpler
+  than both since a local filesystem scan needs no staleness window at all.
 
 ## [0.3.0] — 2026-09-20
 

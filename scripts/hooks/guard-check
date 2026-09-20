@@ -15,8 +15,10 @@
 #      refused BY that rule, not incidentally by a built-in.
 #   3. every lane and worktree still points at it. A session whose settings.local.json
 #      lost its hooks is unguarded even though guard.py is perfectly healthy.
-# And one thing that is not a claim and never fails the command: lanes nobody has touched in
-# `stale_days` (registry/config.yml, 21), each with the one command that clears it.
+# And three things that are not claims and never fail the command, each with the one command
+# that clears it: lanes nobody has touched in `stale_days` (registry/config.yml, 21); a managed
+# GitHub repo whose real branch protection hasn't been checked in `protection: sync_days` (7);
+# and a repo with candidate secret/credential filenames nobody has declared with `lane secrets`.
 set -u
 VERBOSE=0; QUIET=0
 case "${1:-}" in -v|--verbose) VERBOSE=1 ;; -q|--quiet) QUIET=1 ;; -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -340,6 +342,37 @@ if rows:
     for repo, why in rows:
         print(f"  {repo}: branch protection not checked ({why}) — run: lane sync {repo}")
     print("  the threshold is registry/config.yml `protection: sync_days:` (0 turns this off)")
+PY
+fi
+
+# Repos with candidate secret/credential filenames (scripts/repo-secrets scan) that nobody has
+# declared with `lane secrets <repo> add`. Pure local filesystem scan -- unlike the GitHub
+# protection check above, this needs no staleness/cache, it is cheap enough to just re-run every
+# time. Advisory only, like everything else here: never blocks, never declares anything itself.
+if [ "$QUIET" = 0 ] && [ -f "$AD/registry/repos.yaml" ]; then
+python3 - "$AD" <<'PY'
+import os, re, subprocess, sys
+ad = sys.argv[1]
+text = open(f"{ad}/registry/repos.yaml").read()
+rs = f"{ad}/scripts/repo-secrets"
+rows = []
+for m in re.finditer(r"(?:^|\n)  ([\w.-]+):\n", text):
+    repo = m.group(1)
+    if not os.path.exists(f"{ad}/repos/{repo}/.git"):
+        continue                      # no local mirror yet -- nothing to scan
+    scanned = [p for p in subprocess.run([rs, "scan", repo], capture_output=True, text=True).stdout.splitlines() if p]
+    if not scanned:
+        continue
+    declared = {p for p in subprocess.run([rs, "list", repo], capture_output=True, text=True).stdout.splitlines() if p}
+    undeclared = [p for p in scanned if p not in declared]
+    if undeclared:
+        rows.append((repo, undeclared))
+if rows:
+    print()
+    print(f"{len(rows)} repo(s) with undeclared candidate secret/credential file(s):")
+    for repo, paths in rows:
+        shown = ", ".join(paths[:4]) + ("..." if len(paths) > 4 else "")
+        print(f"  {repo}: {len(paths)} candidate(s) ({shown}) — run: lane secrets {repo} add {' '.join(paths)}")
 PY
 fi
 
