@@ -64,8 +64,11 @@ At its root:
 - `knowledge.d/` — **optional.** Plain markdown, copied (never symlinked) into
   `knowledge/shared/` — never directly into `knowledge/`, so a shared file can never silently
   overwrite or shadow one you typed by hand. Unlike `rules.yaml` and `scripts.d/`, these files
-  aren't enforced by anything — they're read by a session like the rest of `knowledge/`, not
-  validated or executed.
+  aren't enforced by anything — they're read by a session, not validated or executed. Every
+  `.md` file under `knowledge/shared/` is injected into every session's context automatically,
+  the same way `knowledge/preferences.md` already is (`guard.py`'s `memory_brief()`) — it's
+  the same "applies to every session, forever" shape as your own preferences, so it needs no
+  pointer added by hand to actually be read.
 
 ### The security properties, on purpose
 

@@ -10,6 +10,17 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 Nothing yet.
 
+## [0.7.1] — 2026-09-21
+
+### Fixed
+
+- **`knowledge/shared/` (written by `lane rules pull`'s `knowledge.d/`) was never read by
+  anything.** It landed on disk and stayed invisible to a session unless someone wired a pointer
+  to it by hand. Every `.md` file there is now injected into every session's context
+  automatically, the same way `knowledge/preferences.md` already is — same "applies to every
+  session, forever" shape as your own preferences, so shared team knowledge actually reaches a
+  session without extra setup.
+
 ## [0.7.0] — 2026-09-21
 
 ### Added
@@ -278,7 +289,8 @@ paths that get walked every day.
   the board fetches its typefaces from Google Fonts, so "no network calls beyond its own server" was
   false; [`docs/board.md`](docs/board.md) now says so, and how to remove them.
 
-[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/aj-oss-tools/repolane/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/aj-oss-tools/repolane/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/aj-oss-tools/repolane/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/aj-oss-tools/repolane/compare/v0.4.0...v0.5.0
