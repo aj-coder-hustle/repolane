@@ -107,3 +107,29 @@ Two advisories, both non-blocking:
   `git ls-remote`). This one line is printed more prominently than the other advisories — team
   guard-rule drift is a different severity of problem than one person's stale local cache — but
   it still never blocks, and never pulls anything itself.
+
+## Tracking your control plane's own files in a private fork
+
+The defaults in `.gitignore` — `registry/*.yaml` (repo list, rules), `scripts/local/` — exist
+because this repo is public: a fork inherits whatever is committed here, and nobody wants their
+repo names or internal rules shipped in a public template. If your control plane itself lives in a
+private fork, that constraint doesn't apply to you, and a team might reasonably want
+`registry/repos.yaml` or `registry/rules.yaml` tracked so everyone's checkout starts from the same
+state instead of each person hand-building their own.
+
+You can override the defaults deliberately, per file:
+
+```
+git add -f registry/repos.yaml        # force-add despite .gitignore
+```
+
+or remove the specific line from `.gitignore` so it stops being ignored at all. This documents the
+override; it does not change what `.gitignore` ships by default — do that yourself, in your fork.
+
+**The real tradeoff**: once a file is tracked, it participates in `lane upgrade`'s fast-forward
+check exactly like any other tracked file (`guard.py`, `.claude/settings.json`, …). A local edit to
+it will block the automated upgrade the same way editing `guard.py` directly does, and you'll be
+following the manual recipe in
+[Troubleshooting → "Upgrade friction"](troubleshooting.md#upgrade-friction-the-clone-is-the-control-plane)
+for it going forward. That's usually the right tradeoff for a file a whole team edits together, but
+it's a real cost, not a free upgrade to "shared state" — weigh it per file, not all at once.

@@ -338,17 +338,22 @@ it helps every human who clones the repo too. For *behaviour*, run the app and r
 
 ## Upgrade friction: the clone is the control plane
 
-This is the sharpest edge in the whole tool, and it is not a bug. After `lane init`, the folder you
-cloned is no longer a copy of the repository: `registry/` holds your repos and lanes, `memory/` and
-`knowledge/` hold what sessions have learned, and `CLAUDE.md` has your name in it. So `git status`
-is dirty by design, and taking an update from upstream is a real merge between upstream's code and
-your state.
+This is the sharpest edge in the whole tool, and it is not a bug. See
+["The clone is the control plane"](concepts.md#the-clone-is-the-control-plane) in Concepts for why:
+in short, this checkout is not a static copy of the repository — `registry/`, `memory/`,
+`knowledge/` and `CLAUDE.md` hold your actual state, `git status` is dirty by design, and taking an
+update from upstream is a real merge between upstream's code and your state.
 
 `lane upgrade` automates exactly the procedure below: it refuses if anything tracked outside
 `registry/`, `memory/`, `knowledge/`, `CLAUDE.md` and `.claude/settings.local.json` is dirty,
 fetches, and fast-forwards only if that's clean — never an automatic merge. If it isn't a clean
 fast-forward (real divergence, or a conflict) it stops and prints the manual steps below rather
 than attempting anything. Run the steps by hand whenever `lane upgrade` itself refuses.
+
+**The one rule that matters**: once you commit your own control-plane state (the "before you pull"
+step just below), `lane upgrade` will always refuse from then on — a local commit is never a clean
+fast-forward, so use the manual recipe instead. This is not a contradiction: committing is exactly
+what the manual recipe expects you to do, and exactly what disqualifies the automated one.
 
 ### Before you pull
 

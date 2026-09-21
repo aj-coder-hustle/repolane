@@ -7,9 +7,9 @@ right now, and `lane help` for this list in your terminal.
 
 | | |
 |---|---|
-| `lane init` | set this machine up (safe to re-run) |
+| `lane init` | set this machine up (safe to re-run); `lane init --check` only verifies prerequisites (git, python3, gh, claude) and exits — changes nothing |
 | `lane add <git-url\|path> [name]` | bring a repo under management — a local checkout with no `origin` remote is registered as local-only |
-| `lane import` | bring past Claude conversations in (optional) |
+| `lane import` | bring past Claude conversations in — entirely optional; copies the conversation (original untouched); `--list` shows what was found and changes nothing |
 | `./lane install` | put `lane` and the long-form commands on your `PATH` — safe to re-run on the same checkout; repointing to a *different* checkout asks first (or refuses non-interactively) unless you pass `--force` |
 
 ## Doing the work
@@ -112,7 +112,10 @@ it refuses if tracked files outside `registry/`, `memory/`, `knowledge/`, `CLAUD
 `.claude/settings.local.json` are dirty, fetches, and fast-forwards onto upstream only if that is
 a clean fast-forward. Any real divergence — local commits, a conflict — stops with no merge
 attempted and prints the same manual recipe (including the `.claude/settings.json`
-`git checkout --theirs` step if that's the conflict). On a successful fast-forward it prints the
+`git checkout --theirs` step if that's the conflict). Once you commit your own control-plane state
+(which the manual recipe itself has you do), `lane upgrade` will always refuse from then on — a
+local commit is never a clean fast-forward — so from that point on the manual recipe is how you
+upgrade, not a fallback for when something went wrong. On a successful fast-forward it prints the
 `VERSION` delta and the `CHANGELOG.md` sections that landed, then runs `lane doctor` automatically
 — the one command this repo lets another command run for you, because doctor is read-only.
 
