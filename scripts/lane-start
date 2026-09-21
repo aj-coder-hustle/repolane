@@ -5,7 +5,7 @@
 # or for the whole call with --base <ref>. A base may be a remote branch, a local branch or a tag.
 # If the branch already exists it is checked out as is (base ignored). Existing lane: adds repos.
 source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
-# --add is how `lane with` (scripts/lane-add) grows a lane that already exists. Without
+# --add is how `lane with` (scripts/lane-with) grows a lane that already exists. Without
 # it, starting and growing are the same code path and the "already exists" checks below
 # made growing impossible.
 ADDING=""; if [ "${1:-}" = "--add" ]; then ADDING=1; shift; fi

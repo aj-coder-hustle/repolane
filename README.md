@@ -81,6 +81,10 @@ lane init             # asks two questions, sets the machine up
 lane add <git-url>    # or: lane add ~/path/to/a/checkout/you/already/have
 ```
 
+Just want to see if this would work before committing to it? `lane init --check` verifies the
+prerequisites (git, python3, optionally gh and claude) and exits — it changes nothing on your
+machine.
+
 | | |
 |---|---|
 | **git** | required — worktrees are the whole mechanism |
@@ -95,6 +99,10 @@ is a folder of scripts. Tested on macOS and Linux; on Windows use WSL.
 `lane add` takes a checkout you already have, not just a URL — it adopts the existing `.git`, keeps
 the origin, and remembers where it came from so `lane import` can find the Claude conversations you
 already had about that repo.
+
+`lane import` is entirely optional and safe to poke at: `lane import --list` only shows what was
+found on this machine and changes nothing, and bringing a conversation in **copies** it into the
+lane's folder — the original conversation, wherever it was, is left exactly where it was.
 
 ## How it works
 
@@ -129,7 +137,7 @@ memory index for every repo in scope.
 
 `lane doctor` compiles it and fires nine named probes at it — eight that must be refused and one
 ordinary command that must not — so you find out when the rules stop being enforced. Behind that
-there is a 179-case suite in `scripts/hooks/test-guard.sh`, which `lane doctor -v` runs.
+there is a 184-case suite in `scripts/hooks/test-guard.sh`, which `lane doctor -v` runs.
 
 ### 3. The board
 
@@ -180,12 +188,17 @@ lane run/gh     run something in one repo without leaving the lane
 lane ref        attach outside code or docs    lane note     write something worth remembering
 lane merge      two pieces of work turned out to be one
 lane import     adopt past Claude conversations
-lane doctor     check the safety rules are working
+lane doctor     check the safety rules are working, and what needs attention
+lane sync       check a repo's real GitHub branch protection
+lane rules      pull a team's shared, SHA-pinned rules.yaml
+lane upgrade    pull the latest release, ff-only, never an automatic merge
 lane help       the full list
 ```
 
 Every command also exists as its own executable — `lane-start`, `lane-run`, `lane-memory` — so they
 run from any directory with no `cd`. Full reference in [`docs/commands.md`](docs/commands.md).
+Your own commands work the same way: anything executable in `scripts/local/` becomes `lane <name>`
+with no dispatcher edit needed — see [`docs/extending.md`](docs/extending.md).
 
 ## Using it without Claude
 
@@ -206,6 +219,8 @@ and in this repo:
 | [`docs/commands.md`](docs/commands.md) | the full command reference |
 | [`docs/board.md`](docs/board.md) | the web board |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | the ways it actually breaks, and how to recover |
+| [`docs/releasing.md`](docs/releasing.md) | how a merged PR actually becomes a release |
+| [`docs/extending.md`](docs/extending.md) | `scripts/local/` custom commands, and `lane rules pull` for shared rules |
 
 Each folder has its own README explaining what lives there:
 [`scripts/`](scripts/README.md) · [`scripts/hooks/`](scripts/hooks/README.md) ·
@@ -215,14 +230,17 @@ Each folder has its own README explaining what lives there:
 
 ## What your clone becomes
 
-The folder you clone *is* your control plane. After `lane init` it is no longer just a copy of this
-repository: `registry/` fills up with your repos and lanes, `memory/` and `knowledge/` with what
-Claude has learned about your work, and `CLAUDE.md` is generated with your name in it. Those are
-yours to commit — and if you want them backed up, point the clone at a private remote of your own.
+The folder you clone *is* your control plane — see
+[`docs/concepts.md`](docs/concepts.md#the-clone-is-the-control-plane) for what that means and why.
+After `lane init` it is no longer just a copy of this repository: `registry/` fills up with your
+repos and lanes, `memory/` and `knowledge/` with what Claude has learned about your work, and
+`CLAUDE.md` is generated with your name in it. Those are yours to commit — and if you want them
+backed up, point the clone at a private remote of your own.
 
 That means `git status` is dirty right after setup, by design. It also means taking an update from
 upstream is a `git pull` that may want a merge, most often in `.claude/settings.json` — see
-[`docs/troubleshooting.md`](docs/troubleshooting.md#upgrading-the-clone) for how to resolve it.
+[`docs/troubleshooting.md`](docs/troubleshooting.md#upgrade-friction-the-clone-is-the-control-plane)
+for how to resolve it.
 Nothing in `repos/` or `lanes/` is ever committed: they are machine state, gitignored, and
 rebuildable from the registry.
 

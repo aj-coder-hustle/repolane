@@ -10,6 +10,57 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 Nothing yet.
 
+## [0.7.0] — 2026-09-21
+
+### Added
+
+- **`lane rules pull` also carries `knowledge.d/`**: the shared repo's optional layout gains a
+  `knowledge.d/` directory alongside `rules.yaml` and `scripts.d/` — plain markdown, copied
+  (never symlinked) under the same SHA pin. Unlike rules/scripts, these files aren't validated or
+  executed, just read by a session — but they still can't silently overwrite something you typed
+  by hand, so they land in a new `knowledge/shared/` namespace, never directly in `knowledge/`.
+  `lane rules status` reports what's loaded there too.
+
+### Fixed
+
+- **`lane init` never disabled the template's own push remote**: after cloning this public
+  template, `origin` still pointed at `github.com/aj-oss-tools/repolane` — a plain `git push`
+  from inside the control plane would have published `registry/config.yml` (can hold a private
+  tracker URL) and `registry/old-checkouts.json` (local filesystem paths) to that public repo.
+  `lane init` now disables the push side of `origin` (`git remote set-url --push origin
+  DISABLED-set-a-private-remote-first`) whenever it still demonstrably points at the known
+  public template — never a remote you've already pointed somewhere of your own. Idempotent, and
+  `lane doctor` now flags it too, as a safety net for anyone who set up before this fix existed.
+- **`lane secrets <repo> add` reads as bookkeeping but is destructive**: every user-facing
+  touchpoint (`scripts/repo-secrets`'s own help text, `lane doctor`'s undeclared-secrets advisory,
+  `lane add`'s interactive/non-interactive prompts, `docs/rules.md`, `docs/commands.md`) used
+  "declare"/"protect" language that read as passive bookkeeping. `add` actually writes deny rules
+  that make the named file(s) unreadable and unwritable to every future Claude Code session — that
+  is now said plainly everywhere the command is offered.
+
+### Added
+
+- **`lane status` now reports the control plane's own git state**: `memory/`, `knowledge/`,
+  `CLAUDE.md` were invisible to `git status`-checking users forever — after `lane init` they're
+  real uncommitted files with nowhere shown to check. A new `== control plane` section (reusing
+  `status-all`'s existing dirty/unpushed-counting logic) reports uncommitted file count, unpushed
+  commit count, and whether a push remote is configured (or disabled, per the fix above).
+- **`private: true` in `registry/config.yml`**: upgrades the documented `git add -f` workaround
+  (`docs/extending.md`, "Tracking your control plane's own files in a private fork") into a real
+  mode. `lane init` asks about it interactively (like the tracker/stale-days questions), or takes
+  `--private`/`--public`, and rewrites `.gitignore` so `registry/repos.yaml`,
+  `registry/rules.yaml` and `scripts/local/` are tracked instead of ignored — every other ignore
+  rule (`repos/`, `lanes/`, `memory/`, `knowledge/`, `registry/rules.shared.yaml`,
+  `registry/.shared-cache/`, `registry/secrets-ignored.yaml`) is untouched. Idempotent, and safe
+  to flip retroactively by editing `config.yml` and re-running `lane init`.
+- **`lane secrets <repo> ignore <path-or-glob>...`**: marks a `scan` candidate as
+  reviewed-and-not-actually-a-secret, without writing any deny rule. Most candidates from `scan`
+  turn out to be ordinary source, not secrets, and previously the only way to make `lane doctor`
+  stop mentioning one was to deny it. Ignored paths live in a new gitignored
+  `registry/secrets-ignored.yaml`, are excluded by `scan` (and therefore by `lane doctor`'s
+  advisory), and are listed with the new `lane secrets <repo> ignored` command so a dismissal is
+  visible, not silently forgotten.
+
 ## [0.6.0] — 2026-09-20
 
 ### Added
@@ -227,7 +278,8 @@ paths that get walked every day.
   the board fetches its typefaces from Google Fonts, so "no network calls beyond its own server" was
   false; [`docs/board.md`](docs/board.md) now says so, and how to remove them.
 
-[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/aj-oss-tools/repolane/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/aj-oss-tools/repolane/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/aj-oss-tools/repolane/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/aj-oss-tools/repolane/compare/v0.3.0...v0.4.0

@@ -13,8 +13,8 @@ Facts you rely on:
 - The scripts do the mechanical work; never hand-roll `git worktree` commands:
   $AD/scripts/lane-start <id> <repo>[:<branch>] ...   $AD/scripts/lane-resume <id>
   $AD/scripts/lane-park <id> "<note>"                  $AD/scripts/lane-done <id> [--delete-branches]
-  $AD/scripts/status-all                             $AD/scripts/lane-add <id> <repo>[:<branch>]
-  $AD/scripts/repo-add <git-url> [name] [--from <checkout>]   $AD/scripts/sessions <repo|id>
+  $AD/scripts/status-all                             $AD/scripts/lane-with <id> <repo>[:<branch>]
+  $AD/scripts/lane-add <git-url> [name] [--from <checkout>]   $AD/scripts/sessions <repo|id>
 - Valid repo names are the keys in $AD/registry/repos.yaml.
 
 How to act:

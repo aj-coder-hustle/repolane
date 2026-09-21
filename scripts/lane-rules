@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # lane-rules pull [<git-url>|--latest] | status
-# A shared, git-backed source for registry/rules.yaml-style rules and scripts/local/ scripts, for
-# a team that wants the same guard rules everywhere without pasting a file around by hand. Full
-# reasoning: docs/extending.md.
+# A shared, git-backed source for registry/rules.yaml-style rules, scripts/local/ scripts, and
+# plain-markdown knowledge, for a team that wants the same guard rules (and shared context)
+# everywhere without pasting files around by hand. Full reasoning: docs/extending.md.
 #
 #   lane rules pull <git-url>   first pull — clones the repo, pins the exact commit SHA fetched
 #   lane rules pull             re-fetch the same URL; refuses to move past the pinned SHA
@@ -10,7 +10,8 @@
 #   lane rules status           configured URL, pinned SHA, remote HEAD, what is loaded
 #
 # The shared repo's root is expected to hold: rules.yaml (required, same schema as
-# registry/rules.yaml) and, optionally, scripts.d/ (files copied into scripts/local/).
+# registry/rules.yaml), and optionally scripts.d/ (files copied into scripts/local/) and
+# knowledge.d/ (files copied into knowledge/shared/ — see below).
 #
 # Security properties, all load-bearing — see docs/extending.md before changing any of them:
 #   - SHA-pinned, never tracking a branch tip. Advancing the pin is always an explicit, separate
@@ -152,12 +153,37 @@ PY
       mkdir -p "$AD/scripts/local"
       n=0
       for f in "$REPO_DIR/scripts.d"/*; do
+        # A symlink passes [ -f ] (it follows the link) -- reject it explicitly first, so a
+        # shared repo can't ship a symlink to an arbitrary file readable by whoever pulls it and
+        # have its contents copied in under an innocent-looking name.
+        [ -L "$f" ] && { echo "  skipped scripts.d/$(basename "$f") — a symlink, not a plain file" >&2; continue; }
         [ -f "$f" ] || continue
         cp "$f" "$AD/scripts/local/$(basename "$f")"
         chmod +x "$AD/scripts/local/$(basename "$f")"
         n=$((n+1))
       done
       [ "$n" -gt 0 ] && echo "copied $n script(s) from scripts.d/ into scripts/local/"
+    fi
+
+    # knowledge.d/ (optional) — plain markdown, read by a session, not enforced by anything, so
+    # there's no guard.py validation equivalent to rules.yaml/scripts.d. But it can still silently
+    # shadow or overwrite a file you typed by hand, so it never lands directly in knowledge/: it
+    # is copied (never symlinked, same as scripts.d/) into a separate knowledge/shared/ namespace,
+    # mirroring how registry/rules.shared.yaml never touches registry/rules.yaml.
+    if [ -d "$REPO_DIR/knowledge.d" ]; then
+      mkdir -p "$AD/knowledge/shared"
+      n=0
+      for f in "$REPO_DIR/knowledge.d"/*; do
+        # Same reason as scripts.d/ above -- and more consequential here, since knowledge/ is
+        # read directly into a session's context, making an unchecked symlink a real exfiltration
+        # path (a shared repo could ship a symlink to a credentials file or SSH key and have its
+        # contents copied straight into what a future session reads).
+        [ -L "$f" ] && { echo "  skipped knowledge.d/$(basename "$f") — a symlink, not a plain file" >&2; continue; }
+        [ -f "$f" ] || continue
+        cp "$f" "$AD/knowledge/shared/$(basename "$f")"
+        n=$((n+1))
+      done
+      [ "$n" -gt 0 ] && echo "copied $n file(s) from knowledge.d/ into knowledge/shared/"
     fi
 
     cfg_set "$URL" "$NEW_SHA"
@@ -190,6 +216,15 @@ PY
       echo "loaded:      $n rule(s) from registry/rules.shared.yaml"
     else
       echo "loaded:      registry/rules.shared.yaml does not exist"
+    fi
+    if [ -d "$AD/scripts/local" ] && [ -n "$(ls -A "$AD/scripts/local" 2>/dev/null)" ]; then
+      echo "scripts.d:   $(ls "$AD/scripts/local" | tr '\n' ' ')"
+    fi
+    if [ -d "$AD/knowledge/shared" ] && [ -n "$(ls -A "$AD/knowledge/shared" 2>/dev/null)" ]; then
+      kn=$(ls "$AD/knowledge/shared" | wc -l | tr -d ' ')
+      echo "knowledge.d: $kn file(s) in knowledge/shared/: $(ls "$AD/knowledge/shared" | tr '\n' ' ')"
+    else
+      echo "knowledge.d: knowledge/shared/ does not exist"
     fi
     ;;
 

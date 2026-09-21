@@ -7,9 +7,10 @@ right now, and `lane help` for this list in your terminal.
 
 | | |
 |---|---|
-| `lane init` | set this machine up (safe to re-run) |
+| `lane init` | set this machine up (safe to re-run); `lane init --check` only verifies prerequisites (git, python3, gh, claude) and exits — changes nothing |
 | `lane add <git-url\|path> [name]` | bring a repo under management — a local checkout with no `origin` remote is registered as local-only |
-| `lane import` | bring past Claude conversations in (optional) |
+| `lane import` | bring past Claude conversations in — entirely optional; copies the conversation (original untouched); `--list` shows what was found and changes nothing |
+| `./lane install` | put `lane` and the long-form commands on your `PATH` — safe to re-run on the same checkout; repointing to a *different* checkout asks first (or refuses non-interactively) unless you pass `--force` |
 
 ## Doing the work
 
@@ -33,7 +34,7 @@ non-interactive run never deletes, only reports what it found.
 
 | | |
 |---|---|
-| `lane status` | every repo, every lane, and any drift |
+| `lane status` | every repo, every lane, any drift, and the control plane's own git state |
 | `lane brief <id>` | catch up on one piece of work |
 | `lane board` | the same thing in a browser |
 | `lane audit` | branches that look finished or stale |
@@ -74,7 +75,7 @@ Nothing is written silently. Claude drafts the memory, then asks whether it belo
 | `lane workspace` | write an editor workspace file for the active lanes |
 | `lane env [id-or-repo]` | check each worktree's `.env` files are linked in — names only, never values |
 | `lane keys <path>` | list the key names in an env file, never the values |
-| `lane secrets <repo> scan\|add\|list` | declare a repo's own secret/credential filenames, beyond the built-in set |
+| `lane secrets <repo> scan\|add\|ignore\|list\|ignored` | `scan` candidates; `add` **denies** a path (unreadable to every future session) — beyond the built-in set; `ignore` dismisses a false positive with no deny rule; `list`/`ignored` show what's been denied/dismissed |
 | `lane sync [repo]` | check a repo's real GitHub branch protection (`gh api`) and record it for the guard |
 | `lane upgrade` | take an update from upstream — fast-forwards if it can, refuses with the manual recipe if it can't |
 | `lane rules pull [url\|--latest]` / `lane rules status` | pull a shared, SHA-pinned rules file from a team git repo — see [`docs/extending.md`](extending.md) |
@@ -94,12 +95,16 @@ lists any managed GitHub repo whose branch protection hasn't been checked with `
 only ever tells you; clearing a lane, or syncing a repo, is always a command you type — `lane sync`
 is never run for you. It also checks, advisory-only like the rest of this list: whether the `lane`
 resolved on your `PATH` actually points at this checkout (`lane install` if not); whether `gh` is
-installed and authenticated (`lane sync`, `lane gh` need it); and, per active lane, whether what
-its spec file says it contains (`repo:`/`branch:` pairs) still matches what's actually checked out
-under `lanes/<id>/` on disk. `lane doctor -v` adds every wiring
+installed and authenticated (`lane sync`, `lane gh` need it); per active lane, whether what its
+spec file says it contains (`repo:`/`branch:` pairs) still matches what's actually checked out
+under `lanes/<id>/` on disk; any repo with a candidate secret/credential filename nobody has
+reviewed with `lane secrets` (neither denied with `add` nor dismissed with `ignore`); any
+`scripts/local/<name>` shadowed by a built-in of the same name
+(it will never run); and — printed first, more prominently than the rest — whether a configured
+`lane rules pull` source has moved since it was last pinned. `lane doctor -v` adds every wiring
 location and runs the full 184-case suite against a throwaway control plane it builds and deletes.
-Any failure exits non-zero — a stale lane, an unsynced repo, a missing `gh`, or spec/worktree
-drift is not one, so it does not.
+Any failure exits non-zero — none of the advisories above do, only a genuinely broken rule or
+guard does.
 
 `lane upgrade` automates the manual procedure in
 [Troubleshooting → "Upgrade friction"](troubleshooting.md#upgrade-friction-the-clone-is-the-control-plane):
@@ -107,7 +112,10 @@ it refuses if tracked files outside `registry/`, `memory/`, `knowledge/`, `CLAUD
 `.claude/settings.local.json` are dirty, fetches, and fast-forwards onto upstream only if that is
 a clean fast-forward. Any real divergence — local commits, a conflict — stops with no merge
 attempted and prints the same manual recipe (including the `.claude/settings.json`
-`git checkout --theirs` step if that's the conflict). On a successful fast-forward it prints the
+`git checkout --theirs` step if that's the conflict). Once you commit your own control-plane state
+(which the manual recipe itself has you do), `lane upgrade` will always refuse from then on — a
+local commit is never a clean fast-forward — so from that point on the manual recipe is how you
+upgrade, not a fallback for when something went wrong. On a successful fast-forward it prints the
 `VERSION` delta and the `CHANGELOG.md` sections that landed, then runs `lane doctor` automatically
 — the one command this repo lets another command run for you, because doctor is read-only.
 

@@ -33,7 +33,7 @@ bash scripts/hooks/test-guard.sh
 It builds its own throwaway control plane in a temp directory under `$HOME` and runs every case
 against a copy of `guard.py` placed inside it. It never reads or writes your real lanes, mirrors
 or memory, so it is safe to run anywhere — on a fresh clone or on a machine with years of work
-in it. It prints `179/179 cases passed` and `ALL PASS`, and exits non-zero on any mismatch.
+in it. It prints `184/184 cases passed` and `ALL PASS`, and exits non-zero on any mismatch.
 
 The suite also fails if it asserts *fewer* cases than it expects: `EXPECTED_CASES` at the top of
 the file is checked against the number actually run, because a safety suite that exits 0 without

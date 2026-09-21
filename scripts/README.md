@@ -21,7 +21,7 @@ can tell you to type `lane-brief <id>` and have it work from any directory.
 | `lane-resume` | recreate missing worktrees, refresh the guards, print the state |
 | `lane-park` | wip-commit anything dirty, record the resume note, mark it parked |
 | `lane-done` | verify every repo is clean and pushed, then remove and archive |
-| `lane-add` | add a repo to a lane that already exists (`lane-start` on an existing id) |
+| `lane-with` | add a repo to a lane that already exists (`lane-start` on an existing id) |
 | `lane-merge`, `lane-merge-plan` | join two lanes; the `-plan` twin can never change anything |
 
 **Looking at things**
@@ -48,7 +48,7 @@ can tell you to type `lane-brief <id>` and have it work from any directory.
 | | |
 |---|---|
 | `init` | set a machine up — prerequisites, config, folders, hooks, status line |
-| `repo-add` | bring a repo under management (`lane add`) |
+| `lane-add` | bring a repo under management (`lane add`) |
 | `copy-repo.sh` | adopt an existing checkout's `.git` instead of cloning it again |
 | `lane-ref` | attach and detach outside references |
 | `lane-memory` | the only way memories and preferences get written |

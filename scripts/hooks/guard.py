@@ -415,7 +415,7 @@ REACH_MSG = ("lanes/{lane}/ belongs to a lane you have not entered. Reaching int
              "  the lane's own file (registry/lanes/{lane}.md) is editable from here.")
 
 STAY_MSG = ("You are inside lane '{cur}'. The work stays here; do not create or enter another worktree from a worktree. "
-            "Need a repo added to THIS work? `lane-add {cur} <repo>`. Is it genuinely separate work __OWNER__ asked for? Then: "
+            "Need a repo added to THIS work? `lane-with {cur} <repo>`. Is it genuinely separate work __OWNER__ asked for? Then: "
             "`lane-park {cur} \"<note>\"`, ExitWorktree keep, and start it from the root — after they confirm.")
 
 # Memory, preferences and the control plane are never written directly: scope is __OWNER__'s call.
@@ -601,9 +601,9 @@ if event == "PreToolUse":
         if re.search(r"(^|[\s;&|/])lane-merge(\s|$)", c) and re.search(r"(^|\s)--run(\s|$)", c):
             deny(event, f"A merge moves and removes worktrees, including this one ({cur}). Run it from the "
                         f"control plane root. From here you can only preview it: lane-merge-plan <a> <b> [options].")
-        m = re.search(r"(^|[\s;&|/])lane-add\s+(\S+)", c)
+        m = re.search(r"(^|[\s;&|/])lane-with\s+(\S+)", c)
         if m and m.group(2) != cur:
-            deny(event, f"lane-add targets lane '{m.group(2)}' but you are in '{cur}'. Only `lane-add {cur} <repo>` is allowed from here.")
+            deny(event, f"lane-with targets lane '{m.group(2)}' but you are in '{cur}'. Only `lane-with {cur} <repo>` is allowed from here.")
     if tool in ("Edit", "Write", "MultiEdit", "NotebookEdit", "Read", "Glob", "Grep"):
         for key in ("file_path", "notebook_path", "path"):
             tp = ti.get(key) or ""
@@ -783,7 +783,7 @@ if event == "PreToolUse":
             deny(event, f"{AD}/repos/ is the read-only mirror. Work in the lane worktree under lanes/ (scripts/lane-start or lane-resume).")
         target = lane_of(rp)
         if cur and target and target != cur:
-            deny(event, f"'{target}' is a different lane. This session is in '{cur}'. Ask __OWNER__ to add that repo with scripts/lane-add {cur} <repo>, or switch lanes.")
+            deny(event, f"'{target}' is a different lane. This session is in '{cur}'. Ask __OWNER__ to add that repo with scripts/lane-with {cur} <repo>, or switch lanes.")
         if cur and target == cur:
             repo = repo_of(rp, cur); extra = None
             here = repo_of(cwd, cur)  # the repo the session stands in loads its own CLAUDE.md natively

@@ -18,7 +18,7 @@
 # And three things that are not claims and never fail the command, each with the one command
 # that clears it: lanes nobody has touched in `stale_days` (registry/config.yml, 21); a managed
 # GitHub repo whose real branch protection hasn't been checked in `protection: sync_days` (7);
-# and a repo with candidate secret/credential filenames nobody has declared with `lane secrets`.
+# and a repo with candidate secret/credential filenames nobody has reviewed with `lane secrets`.
 set -u
 VERBOSE=0; QUIET=0
 case "${1:-}" in -v|--verbose) VERBOSE=1 ;; -q|--quiet) QUIET=1 ;; -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -366,9 +366,10 @@ PY
 fi
 
 # Repos with candidate secret/credential filenames (scripts/repo-secrets scan) that nobody has
-# declared with `lane secrets <repo> add`. Pure local filesystem scan -- unlike the GitHub
-# protection check above, this needs no staleness/cache, it is cheap enough to just re-run every
-# time. Advisory only, like everything else here: never blocks, never declares anything itself.
+# reviewed yet -- neither denied with `lane secrets <repo> add` nor dismissed with
+# `lane secrets <repo> ignore`. Pure local filesystem scan -- unlike the GitHub protection check
+# above, this needs no staleness/cache, it is cheap enough to just re-run every time. Advisory
+# only, like everything else here: never blocks, never denies or ignores anything itself.
 if [ "$QUIET" = 0 ] && [ -f "$AD/registry/repos.yaml" ]; then
 python3 - "$AD" <<'PY'
 import os, re, subprocess, sys
@@ -380,19 +381,22 @@ for m in re.finditer(r"(?:^|\n)  ([\w.-]+):\n", text):
     repo = m.group(1)
     if not os.path.exists(f"{ad}/repos/{repo}/.git"):
         continue                      # no local mirror yet -- nothing to scan
-    scanned = [p for p in subprocess.run([rs, "scan", repo], capture_output=True, text=True).stdout.splitlines() if p]
+    scanned = [p for p in subprocess.run([rs, repo, "scan"], capture_output=True, text=True).stdout.splitlines() if p]
     if not scanned:
         continue
-    declared = {p for p in subprocess.run([rs, "list", repo], capture_output=True, text=True).stdout.splitlines() if p}
+    declared = {p for p in subprocess.run([rs, repo, "list"], capture_output=True, text=True).stdout.splitlines() if p}
     undeclared = [p for p in scanned if p not in declared]
     if undeclared:
         rows.append((repo, undeclared))
 if rows:
     print()
-    print(f"{len(rows)} repo(s) with undeclared candidate secret/credential file(s):")
+    print(f"{len(rows)} repo(s) with unreviewed candidate secret/credential file(s):")
     for repo, paths in rows:
         shown = ", ".join(paths[:4]) + ("..." if len(paths) > 4 else "")
-        print(f"  {repo}: {len(paths)} candidate(s) ({shown}) — run: lane secrets {repo} add {' '.join(paths)}")
+        print(f"  {repo}: {len(paths)} candidate(s) ({shown}) — most of these are typically ordinary source,")
+        print(f"    not secrets. Review them, then either:")
+        print(f"    deny a real secret (unreadable to every future session): lane secrets {repo} add {' '.join(paths)}")
+        print(f"    dismiss a false positive (no deny rule written):         lane secrets {repo} ignore {' '.join(paths)}")
 PY
 fi
 
@@ -411,6 +415,27 @@ if [ "$QUIET" = 0 ]; then
       echo "the installed \`lane\` command points at $resolved, not this checkout ($AD) — run: lane install"
     fi
   fi
+fi
+
+# The control plane's own push remote (docs/concepts.md — "the clone is the control plane"):
+# still pointed at the public template it was cloned from? `lane init` disables the push side by
+# default now, but this is a safety net for anyone who set up before that fix existed, or ran
+# `lane init --check` (which never gets this far). Advisory only, never touches the remote itself.
+if [ "$QUIET" = 0 ] && git -C "$AD" remote get-url origin >/dev/null 2>&1; then
+  ORIGIN_FETCH=$(git -C "$AD" remote get-url origin 2>/dev/null || echo "")
+  ORIGIN_PUSH=$(git -C "$AD" remote get-url --push origin 2>/dev/null || echo "")
+  case "$ORIGIN_FETCH" in
+    https://github.com/aj-oss-tools/repolane|https://github.com/aj-oss-tools/repolane.git| \
+    git@github.com:aj-oss-tools/repolane|git@github.com:aj-oss-tools/repolane.git)
+      if [ "$ORIGIN_PUSH" = "$ORIGIN_FETCH" ]; then
+        echo
+        echo "!! origin's push URL still points at the public template ($ORIGIN_FETCH) — a plain"
+        echo "   \`git push\` from here would publish registry/config.yml and old-checkouts.json to it."
+        echo "   run: git remote set-url --push origin DISABLED-set-a-private-remote-first"
+        echo "   (or point origin at your own private repo — see docs/concepts.md)"
+      fi
+      ;;
+  esac
 fi
 
 # Is `gh` around and authenticated? Informational only — it affects `lane sync`, `lane gh`, and

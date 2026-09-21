@@ -2,11 +2,63 @@
 
 Five words carry the whole system.
 
+## The clone is the control plane
+
+This is the foundational fact everything else here builds on, not an upgrade footnote. There is no
+server, no daemon, no separately-installed app: the folder you cloned **is** Repolane. Every
+script resolves its own root the same way, from `scripts/lib.sh`:
+
+```
+AD="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+```
+
+`AD` is wherever this checkout happens to sit on disk — nothing hardcodes a path. That single line
+is why `lane` works from a clone anywhere, and it is also why this checkout is not a static copy of
+the repository the way most clones are: after `lane init`, `registry/` holds your repos and lanes,
+`memory/` and `knowledge/` hold what sessions have learned, and `CLAUDE.md` has your name in it.
+`git status` on this checkout is dirty by design — that dirt is your control plane's actual state,
+not drift to clean up.
+
+It also means `origin` is a real git remote pointed at a real repo — at first, this public
+template. `registry/config.yml` can hold a private tracker URL and `registry/old-checkouts.json`
+can hold local filesystem paths, so `lane init` disables the push side of `origin`
+(`git remote set-url --push origin DISABLED-set-a-private-remote-first`) whenever it still points
+at the public template, so a plain `git push` from inside the control plane can't publish either
+of those to it. Point `origin` at your own private repo, then re-enable push yourself:
+`git remote set-url --push origin <your-repo>`. `lane doctor` flags it if this was never applied.
+
+Two things follow directly:
+
+- **This checkout is where the plane lives.** There is nothing to "deploy" or "install" beyond
+  `lane install` putting `lane` and the long-form commands on your `PATH` — they still point back
+  at this same folder.
+- **Upgrading means updating THIS checkout in place**, not replacing it or cloning a fresh one.
+  `lane upgrade` (or the manual recipe when it refuses) pulls new code from upstream into the same
+  folder that holds your registry, memory and knowledge — see
+  ["Upgrade friction"](troubleshooting.md#upgrade-friction-the-clone-is-the-control-plane) in
+  Troubleshooting for the actual procedure.
+
 ## Repo
 
 A repo you work on. It lives once, at `repos/<name>`, and is a **mirror**: always on its default
 branch, never edited, never switched. It exists so every piece of work can share one object store.
 Add one with `lane add <git-url>` or `lane add <path-to-a-checkout-you-already-have>`.
+
+**Adopting a checkout you already have** (`lane add <path>`) runs `scripts/copy-repo.sh` under the
+hood. What it actually does, verified from the script:
+
+- It **copies** `.git` (`cp -a`), it never moves it — your original checkout is completely
+  untouched, on whatever branch it was already on, and stays usable exactly as before.
+- **All branches and stashes come along**, since they live in `.git` and the whole directory is
+  copied — not just the current branch.
+- Only the **default branch is checked out** into the new mirror at `repos/<name>`, freshly reset
+  to `origin/<default>` (or the source's own checked-out branch if there is no `origin/HEAD`).
+- **Worktrees are dropped, not carried over**: `.git/worktrees` metadata is deleted after the copy,
+  since a mirror never has worktrees of its own. Any worktree the original checkout had (including
+  one for a branch you were actively using) is not recreated automatically — start a lane for that
+  branch with `lane start <id> <repo>:<branch>` to get a worktree for it again.
+- A short whitelist of meaningful gitignored files (`.env*`, `settings.local.json`,
+  `*.code-workspace`) is copied over too, so local config isn't silently lost.
 
 ## Lane
 
