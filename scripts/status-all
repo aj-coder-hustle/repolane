@@ -2,6 +2,24 @@
 # status-all: one board — repos, lanes, drift.
 source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$0")/lib.sh"
 "$AD/scripts/hooks/guard-check" -q || echo "   (fix guard.py before trusting any of the state below)"
+echo "== control plane (this checkout itself — docs/concepts.md: \"the clone is the control plane\")"
+if [ -d "$AD/.git" ] || [ -f "$AD/.git" ]; then
+  cp_dirty=$(git -C "$AD" status --porcelain | wc -l | tr -d ' ')
+  cp_unpushed=$(git -C "$AD" log --oneline '@{u}..HEAD' 2>/dev/null | wc -l | tr -d ' ')
+  if git -C "$AD" remote get-url origin >/dev/null 2>&1; then
+    cp_push_url=$(git -C "$AD" remote get-url --push origin 2>/dev/null || echo "")
+    if [ "$cp_push_url" = "DISABLED-set-a-private-remote-first" ]; then
+      cp_remote="push disabled"
+    else
+      cp_remote="push remote: $cp_push_url"
+    fi
+  else
+    cp_remote="no push remote configured"
+  fi
+  echo "  $cp_dirty dirty, $cp_unpushed unpushed, $cp_remote"
+else
+  echo "  not a git repo — memory/, knowledge/, CLAUDE.md are not tracked anywhere"
+fi
 echo "== repos (primary mirrors)"
 for r in "$REPOS"/*/; do n=$(basename "$r"); def=$(repo_default "$n")
   git -C "$r" fetch -q origin 2>/dev/null || true

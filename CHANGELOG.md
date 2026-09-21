@@ -27,6 +27,11 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ### Added
 
+- **`lane status` now reports the control plane's own git state**: `memory/`, `knowledge/`,
+  `CLAUDE.md` were invisible to `git status`-checking users forever — after `lane init` they're
+  real uncommitted files with nowhere shown to check. A new `== control plane` section (reusing
+  `status-all`'s existing dirty/unpushed-counting logic) reports uncommitted file count, unpushed
+  commit count, and whether a push remote is configured (or disabled, per the fix above).
 - **`lane secrets <repo> ignore <path-or-glob>...`**: marks a `scan` candidate as
   reviewed-and-not-actually-a-secret, without writing any deny rule. Most candidates from `scan`
   turn out to be ordinary source, not secrets, and previously the only way to make `lane doctor`

@@ -34,7 +34,7 @@ non-interactive run never deletes, only reports what it found.
 
 | | |
 |---|---|
-| `lane status` | every repo, every lane, and any drift |
+| `lane status` | every repo, every lane, any drift, and the control plane's own git state |
 | `lane brief <id>` | catch up on one piece of work |
 | `lane board` | the same thing in a browser |
 | `lane audit` | branches that look finished or stale |
