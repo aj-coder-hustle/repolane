@@ -75,7 +75,7 @@ Nothing is written silently. Claude drafts the memory, then asks whether it belo
 | `lane workspace` | write an editor workspace file for the active lanes |
 | `lane env [id-or-repo]` | check each worktree's `.env` files are linked in — names only, never values |
 | `lane keys <path>` | list the key names in an env file, never the values |
-| `lane secrets <repo> scan\|add\|list` | declare a repo's own secret/credential filenames, beyond the built-in set |
+| `lane secrets <repo> scan\|add\|ignore\|list\|ignored` | `scan` candidates; `add` **denies** a path (unreadable to every future session) — beyond the built-in set; `ignore` dismisses a false positive with no deny rule; `list`/`ignored` show what's been denied/dismissed |
 | `lane sync [repo]` | check a repo's real GitHub branch protection (`gh api`) and record it for the guard |
 | `lane upgrade` | take an update from upstream — fast-forwards if it can, refuses with the manual recipe if it can't |
 | `lane rules pull [url\|--latest]` / `lane rules status` | pull a shared, SHA-pinned rules file from a team git repo — see [`docs/extending.md`](extending.md) |
@@ -98,7 +98,8 @@ resolved on your `PATH` actually points at this checkout (`lane install` if not)
 installed and authenticated (`lane sync`, `lane gh` need it); per active lane, whether what its
 spec file says it contains (`repo:`/`branch:` pairs) still matches what's actually checked out
 under `lanes/<id>/` on disk; any repo with a candidate secret/credential filename nobody has
-declared with `lane secrets`; any `scripts/local/<name>` shadowed by a built-in of the same name
+reviewed with `lane secrets` (neither denied with `add` nor dismissed with `ignore`); any
+`scripts/local/<name>` shadowed by a built-in of the same name
 (it will never run); and — printed first, more prominently than the rest — whether a configured
 `lane rules pull` source has moved since it was last pinned. `lane doctor -v` adds every wiring
 location and runs the full 184-case suite against a throwaway control plane it builds and deletes.

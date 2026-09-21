@@ -139,14 +139,23 @@ filenames (`service-account.json`, `.npmrc`, `id_rsa`, `.aws/credentials`, `apik
 becoming unbounded, so those are declared per repo instead, using the exact mechanism above.
 
 `lane add` scans a newly added repo for filename patterns that look like credentials beyond the
-built-in set — by filename only, never by reading contents. Run interactively, it prints what it
-found and asks whether to protect them. Run without a terminal (an AI agent driving `lane add`),
-it only reports the candidates for a human to review — nothing is ever added without someone
-confirming, the same principle behind every other guard behaviour in this repo. Protecting a file
-calls `lane secrets <repo> add <path>`, which writes six deny rules into `registry/rules.yaml` (one
-each for `Read`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, and `Bash`) — so `lane doctor` checks
-them the same way it checks any other rule of your own. `lane secrets <repo> scan` and
-`lane secrets <repo> list` run the scan, or list what is already declared, on their own.
+built-in set — by filename only, never by reading contents. Most candidates in a typical repo turn
+out to be ordinary source (`password.py`, `token_store.py`, `credentials.py`) rather than actual
+secrets, so review before acting. Run interactively, it prints what it found and asks whether to
+**deny** them. Run without a terminal (an AI agent driving `lane add`), it only reports the
+candidates for a human to review — nothing is ever denied without someone confirming, the same
+principle behind every other guard behaviour in this repo.
+
+`lane secrets <repo> add <path>` is **destructive, not bookkeeping**: it writes six deny rules into
+`registry/rules.yaml` (one each for `Read`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, and
+`Bash`), which makes that file unreadable (and unwritable) to every future Claude Code session in
+this repo — so `lane doctor` checks them the same way it checks any other rule of your own. If a
+candidate is a false positive — not actually a secret — use `lane secrets <repo> ignore <path>`
+instead: it marks the path reviewed-and-not-a-secret in a separate, gitignored
+`registry/secrets-ignored.yaml`, so `scan` (and `lane doctor`'s advisory) stops surfacing it, and
+**no deny rule is written**. `lane secrets <repo> scan` runs the scan (excluding anything already
+`ignore`d); `lane secrets <repo> list` shows what has been denied; `lane secrets <repo> ignored`
+shows what has been dismissed.
 
 ### When the file is wrong
 
@@ -192,6 +201,7 @@ that "starts work" ever blocks on a network call to GitHub.
 
 And a fourth: repos with a candidate secret/credential filename (`scripts/repo-secrets scan`'s
 patterns — `.npmrc`, `id_rsa`, `service-account.json` and the rest, see
-["Rules of your own"](#rules-of-your-own) above) that nobody has declared with `lane secrets
-<repo> add`. Unlike the other three, this needs no staleness window at all — it is a plain local
-filesystem scan, cheap enough to re-run on every `lane doctor`, so it is always current.
+["Rules of your own"](#rules-of-your-own) above) that nobody has reviewed yet — neither denied with
+`lane secrets <repo> add` nor dismissed with `lane secrets <repo> ignore`. Unlike the other three,
+this needs no staleness window at all — it is a plain local filesystem scan, cheap enough to
+re-run on every `lane doctor`, so it is always current.

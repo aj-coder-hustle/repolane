@@ -96,24 +96,29 @@ candidates=$("$AD/scripts/repo-secrets" scan "$name" 2>/dev/null || true)
 if [ -n "$candidates" ]; then
   if [ -t 0 ] && [ -t 2 ]; then
     echo
-    echo "  candidate secret/credential file(s) found in $name:"
+    echo "  candidate secret/credential file(s) found in $name — most candidates in a typical repo turn out"
+    echo "  to be ordinary source (password.py, token_store.py, ...), not actual secrets:"
     echo "$candidates" | sed 's/^/    /'
-    printf "  protect these as secret files? [Y/n]: " >&2
+    printf "  deny future Read/Edit/Write of these files as secrets? [y/N]: " >&2
     read -r yn || true
-    case "${yn:-y}" in
-      [nN]*) echo "  skipped — declare them later: lane secrets $name add <path>..." ;;
-      *)
+    case "${yn:-n}" in
+      [yY]*)
         mapfile -t cand_arr <<< "$candidates"
         "$AD/scripts/repo-secrets" add "$name" "${cand_arr[@]}"
         ;;
+      *) echo "  skipped. To deny a real secret later: lane secrets $name add <path>...  To dismiss a false positive without denying it: lane secrets $name ignore <path>..." ;;
     esac
   else
-    # No tty: this is the agent-driven path. Never add silently — an AI agent driving `lane add`
-    # must be told about candidates and must not have them protected without a human confirming,
-    # the same principle behind every other guard behaviour in this repo.
+    # No tty: this is the agent-driven path. Never deny silently — an AI agent driving `lane add`
+    # must be told about candidates and must not have them denied without a human confirming,
+    # the same principle behind every other guard behaviour in this repo. Most candidates turn out
+    # to be ordinary source, not secrets, so this is a prompt to review, not an instruction to deny.
     n=$(echo "$candidates" | wc -l | tr -d ' ')
     echo
-    echo "  $n candidate secret/credential file(s) found in $name — review and declare them: lane secrets $name add <path>..."
+    echo "  $n candidate secret/credential file(s) found in $name — review them. Most turn out to be ordinary"
+    echo "  source, not secrets. To deny reading a real secret: lane secrets $name add <path>...  (this makes"
+    echo "  it unreadable to every future session). To dismiss a false positive without denying it:"
+    echo "  lane secrets $name ignore <path>..."
     echo "$candidates" | sed 's/^/    /'
   fi
 fi

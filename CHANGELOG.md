@@ -8,7 +8,24 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **`lane secrets <repo> add` reads as bookkeeping but is destructive**: every user-facing
+  touchpoint (`scripts/repo-secrets`'s own help text, `lane doctor`'s undeclared-secrets advisory,
+  `lane add`'s interactive/non-interactive prompts, `docs/rules.md`, `docs/commands.md`) used
+  "declare"/"protect" language that read as passive bookkeeping. `add` actually writes deny rules
+  that make the named file(s) unreadable and unwritable to every future Claude Code session — that
+  is now said plainly everywhere the command is offered.
+
+### Added
+
+- **`lane secrets <repo> ignore <path-or-glob>...`**: marks a `scan` candidate as
+  reviewed-and-not-actually-a-secret, without writing any deny rule. Most candidates from `scan`
+  turn out to be ordinary source, not secrets, and previously the only way to make `lane doctor`
+  stop mentioning one was to deny it. Ignored paths live in a new gitignored
+  `registry/secrets-ignored.yaml`, are excluded by `scan` (and therefore by `lane doctor`'s
+  advisory), and are listed with the new `lane secrets <repo> ignored` command so a dismissal is
+  visible, not silently forgotten.
 
 ## [0.6.0] — 2026-09-20
 
