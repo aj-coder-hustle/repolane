@@ -10,6 +10,14 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ### Fixed
 
+- **`lane init` never disabled the template's own push remote**: after cloning this public
+  template, `origin` still pointed at `github.com/aj-oss-tools/repolane` — a plain `git push`
+  from inside the control plane would have published `registry/config.yml` (can hold a private
+  tracker URL) and `registry/old-checkouts.json` (local filesystem paths) to that public repo.
+  `lane init` now disables the push side of `origin` (`git remote set-url --push origin
+  DISABLED-set-a-private-remote-first`) whenever it still demonstrably points at the known
+  public template — never a remote you've already pointed somewhere of your own. Idempotent, and
+  `lane doctor` now flags it too, as a safety net for anyone who set up before this fix existed.
 - **`lane secrets <repo> add` reads as bookkeeping but is destructive**: every user-facing
   touchpoint (`scripts/repo-secrets`'s own help text, `lane doctor`'s undeclared-secrets advisory,
   `lane add`'s interactive/non-interactive prompts, `docs/rules.md`, `docs/commands.md`) used

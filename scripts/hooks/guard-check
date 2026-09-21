@@ -417,6 +417,27 @@ if [ "$QUIET" = 0 ]; then
   fi
 fi
 
+# The control plane's own push remote (docs/concepts.md — "the clone is the control plane"):
+# still pointed at the public template it was cloned from? `lane init` disables the push side by
+# default now, but this is a safety net for anyone who set up before that fix existed, or ran
+# `lane init --check` (which never gets this far). Advisory only, never touches the remote itself.
+if [ "$QUIET" = 0 ] && git -C "$AD" remote get-url origin >/dev/null 2>&1; then
+  ORIGIN_FETCH=$(git -C "$AD" remote get-url origin 2>/dev/null || echo "")
+  ORIGIN_PUSH=$(git -C "$AD" remote get-url --push origin 2>/dev/null || echo "")
+  case "$ORIGIN_FETCH" in
+    https://github.com/aj-oss-tools/repolane|https://github.com/aj-oss-tools/repolane.git| \
+    git@github.com:aj-oss-tools/repolane|git@github.com:aj-oss-tools/repolane.git)
+      if [ "$ORIGIN_PUSH" = "$ORIGIN_FETCH" ]; then
+        echo
+        echo "!! origin's push URL still points at the public template ($ORIGIN_FETCH) — a plain"
+        echo "   \`git push\` from here would publish registry/config.yml and old-checkouts.json to it."
+        echo "   run: git remote set-url --push origin DISABLED-set-a-private-remote-first"
+        echo "   (or point origin at your own private repo — see docs/concepts.md)"
+      fi
+      ;;
+  esac
+fi
+
 # Is `gh` around and authenticated? Informational only — it affects `lane sync`, `lane gh`, and
 # anything else that shells out to it, but nothing here runs it or fixes it.
 if [ "$QUIET" = 0 ]; then

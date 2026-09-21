@@ -292,6 +292,35 @@ else
   kept "status line"
 fi
 
+# ---------------------------------------------------------------- 4c. don't leave the template's push remote live
+# This checkout IS a git repo (docs/concepts.md — "the clone is the control plane"), and after
+# `lane init` it holds real state: registry/config.yml can name a private tracker, and
+# registry/old-checkouts.json can hold local filesystem paths. If `origin` still points at this
+# public template, a naive `git push` from inside the control plane would publish both to it.
+# Fixed the same way a reporter worked around it by hand: disable the push side of `origin`, but
+# only when it still demonstrably points at the known public template — never touch a remote
+# someone has already pointed somewhere of their own.
+DISABLED_PUSH_SENTINEL="DISABLED-set-a-private-remote-first"
+is_known_template_url(){
+  case "$1" in
+    https://github.com/aj-oss-tools/repolane|https://github.com/aj-oss-tools/repolane.git| \
+    git@github.com:aj-oss-tools/repolane|git@github.com:aj-oss-tools/repolane.git) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+if git -C "$AD" remote get-url origin >/dev/null 2>&1; then
+  FETCH_URL=$(git -C "$AD" remote get-url origin 2>/dev/null || echo "")
+  PUSH_URL=$(git -C "$AD" remote get-url --push origin 2>/dev/null || echo "")
+  if [ "$PUSH_URL" = "$DISABLED_PUSH_SENTINEL" ]; then
+    kept "origin push (already disabled — still the public template's remote)"
+  elif [ "$FETCH_URL" = "$PUSH_URL" ] && is_known_template_url "$FETCH_URL"; then
+    git -C "$AD" remote set-url --push origin "$DISABLED_PUSH_SENTINEL"
+    warn "disabled pushing to origin (still the public template's remote) — point it at your own private repo first: git remote set-url origin <your-repo>, then git remote set-url --push origin <your-repo>"
+  else
+    kept "origin (already points somewhere of your own — left alone)"
+  fi
+fi
+
 # ---------------------------------------------------------------- 5. is the wiring intact
 echo
 echo "Checking the wiring:"

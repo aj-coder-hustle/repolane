@@ -19,6 +19,14 @@ the repository the way most clones are: after `lane init`, `registry/` holds you
 `git status` on this checkout is dirty by design — that dirt is your control plane's actual state,
 not drift to clean up.
 
+It also means `origin` is a real git remote pointed at a real repo — at first, this public
+template. `registry/config.yml` can hold a private tracker URL and `registry/old-checkouts.json`
+can hold local filesystem paths, so `lane init` disables the push side of `origin`
+(`git remote set-url --push origin DISABLED-set-a-private-remote-first`) whenever it still points
+at the public template, so a plain `git push` from inside the control plane can't publish either
+of those to it. Point `origin` at your own private repo, then re-enable push yourself:
+`git remote set-url --push origin <your-repo>`. `lane doctor` flags it if this was never applied.
+
 Two things follow directly:
 
 - **This checkout is where the plane lives.** There is nothing to "deploy" or "install" beyond
