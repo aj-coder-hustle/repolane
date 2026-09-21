@@ -381,10 +381,10 @@ for m in re.finditer(r"(?:^|\n)  ([\w.-]+):\n", text):
     repo = m.group(1)
     if not os.path.exists(f"{ad}/repos/{repo}/.git"):
         continue                      # no local mirror yet -- nothing to scan
-    scanned = [p for p in subprocess.run([rs, "scan", repo], capture_output=True, text=True).stdout.splitlines() if p]
+    scanned = [p for p in subprocess.run([rs, repo, "scan"], capture_output=True, text=True).stdout.splitlines() if p]
     if not scanned:
         continue
-    declared = {p for p in subprocess.run([rs, "list", repo], capture_output=True, text=True).stdout.splitlines() if p}
+    declared = {p for p in subprocess.run([rs, repo, "list"], capture_output=True, text=True).stdout.splitlines() if p}
     undeclared = [p for p in scanned if p not in declared]
     if undeclared:
         rows.append((repo, undeclared))

@@ -94,7 +94,7 @@ echo "registered $name (default $def); memory -> memory/$name. Edit registry/rep
 # guard.py already denies a fixed set of secret-shaped filenames globally; every repo can also have
 # its own (service-account.json, .npmrc, id_rsa, …) that set was never going to cover. Scan by
 # filename only, never contents.
-candidates=$("$AD/scripts/repo-secrets" scan "$name" 2>/dev/null || true)
+candidates=$("$AD/scripts/repo-secrets" "$name" scan 2>/dev/null || true)
 if [ -n "$candidates" ]; then
   if [ -t 0 ] && [ -t 2 ]; then
     echo
@@ -106,7 +106,7 @@ if [ -n "$candidates" ]; then
     case "${yn:-n}" in
       [yY]*)
         mapfile -t cand_arr <<< "$candidates"
-        "$AD/scripts/repo-secrets" add "$name" "${cand_arr[@]}"
+        "$AD/scripts/repo-secrets" "$name" add "${cand_arr[@]}"
         ;;
       *) echo "  skipped. To deny a real secret later: lane secrets $name add <path>...  To dismiss a false positive without denying it: lane secrets $name ignore <path>..." ;;
     esac
