@@ -27,7 +27,15 @@ lanes:
   delete_sessions_on_done: false    # default answer to lane done's session-cleanup prompt
 protection:
   sync_days: 7                      # lane doctor flags a repo unchecked by lane sync this long; 0 off
+private: false                      # true: lane init tracks repos.yaml/rules.yaml/scripts/local/ in git
 ```
+
+`private:` (default `false`) is for a control plane that itself lives in a private fork, not this
+public template. `true` makes `lane init` rewrite `.gitignore` so `registry/repos.yaml`,
+`registry/rules.yaml` and `scripts/local/` are tracked in git instead of ignored — see
+[`docs/extending.md`](../docs/extending.md#tracking-your-control-planes-own-files-in-a-private-fork).
+Everything else (`repos/`, `lanes/`, `memory/`, `knowledge/`, the shared-rules cache) stays
+ignored regardless.
 
 `{key}` is replaced with the lane's `ticket:` field, or with the key at the front of its id
 (`ABC-123-short-name` → `ABC-123`). Leave `url` blank and ticket keys render as plain text.

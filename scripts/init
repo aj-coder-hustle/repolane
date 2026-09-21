@@ -18,7 +18,7 @@ while [ -L "$_self" ]; do
 done
 AD="$(cd "$(dirname "$_self")/.." && pwd)"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
-OWNER=""; TRACKER=""; ASSUME_YES=0; CHECK_ONLY=0; DELETE_SESSIONS_ON_DONE=""; SYNC_DAYS=""
+OWNER=""; TRACKER=""; ASSUME_YES=0; CHECK_ONLY=0; DELETE_SESSIONS_ON_DONE=""; SYNC_DAYS=""; PRIVATE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -30,6 +30,8 @@ while [ $# -gt 0 ]; do
     --claude-home) CLAUDE_HOME="${2:-}"; shift 2 ;;
     --delete-sessions-on-done) DELETE_SESSIONS_ON_DONE="${2:-}"; shift 2 ;;
     --sync-days) SYNC_DAYS="${2:-}"; shift 2 ;;
+    --private) PRIVATE=true; shift ;;
+    --public) PRIVATE=false; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     --check) CHECK_ONLY=1; shift ;;
     -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -114,6 +116,9 @@ fi
 if [ -z "$TRACKER" ] && [ -f "$AD/registry/config.yml" ]; then
   TRACKER=$(sed -n 's/^[[:space:]]*url:[[:space:]]*//p' "$AD/registry/config.yml" | head -1 | tr -d '"'"'")
 fi
+if [ -z "$PRIVATE" ] && [ -f "$AD/registry/config.yml" ]; then
+  PRIVATE=$(sed -n 's/^private:[[:space:]]*//p' "$AD/registry/config.yml" | head -1 | tr -d '"'"'"' ')
+fi
 if [ -z "$OWNER" ]; then
   if [ "$ASSUME_YES" = 1 ]; then
     OWNER=$(git config user.name 2>/dev/null) || true
@@ -189,6 +194,22 @@ if [ -z "$SYNC_DAYS" ] && [ "$ASSUME_YES" != 1 ]; then
 fi
 [ -n "$SYNC_DAYS" ] || SYNC_DAYS=7
 
+# Same style again: this decides whether registry/repos.yaml, registry/rules.yaml and
+# scripts/local/ get tracked by git (below) instead of gitignored. The gitignored default is
+# right for this public template — a fork inherits whatever is committed — so it stays off
+# unless someone says otherwise, here or with a fresh --private later.
+if [ -z "$PRIVATE" ] && [ "$ASSUME_YES" != 1 ]; then
+  pick4=$(pick "Is this control plane's own repo private (not the public Repolane template)?" \
+    "No — public, or forked from the public template (default)" \
+    "Yes — a private fork; track repos.yaml, rules.yaml and scripts/local/ in git")
+  case "${pick4:-1}" in
+    2) PRIVATE=true ;;
+    *) PRIVATE=false ;;
+  esac
+  echo
+fi
+[ -n "$PRIVATE" ] || PRIVATE=false
+
 echo "Setting up $(printf %s "$AD" | sed "s#^$HOME#~#") for $OWNER:"
 
 # ---------------------------------------------------------------- 3. folders and files
@@ -228,6 +249,13 @@ protection:
   # has not been checked in this many days (or never). Sync itself is always manual —
   # this only decides when the reminder shows up. 0 turns the reminder off.
   sync_days: $SYNC_DAYS
+
+# Is THIS control plane's own repo a private fork (not the public Repolane template)? Default
+# false, matching .gitignore's template-safe default. true makes \`lane init\` track
+# registry/repos.yaml, registry/rules.yaml and scripts/local/ in git instead of ignoring them —
+# see "Tracking your control plane's own files in a private fork" in docs/extending.md. Flip
+# this and re-run \`lane init\` to apply it retroactively.
+private: $PRIVATE
 EOT
   made "registry/config.yml"
 fi
@@ -261,6 +289,54 @@ if [ -f "$AD/CLAUDE.md" ]; then
   kept "CLAUDE.md"
 elif [ -f "$AD/CLAUDE.md.template" ]; then
   sed "s/the owner/$OWNER/g" "$AD/CLAUDE.md.template" > "$AD/CLAUDE.md"; made "CLAUDE.md"
+fi
+
+# ---------------------------------------------------------------- 3b. private: true tracks the files that are gitignored by default
+# Read fresh off disk, not the $PRIVATE we may have just asked about — this also applies
+# retroactively when someone hand-edits registry/config.yml's `private:` and re-runs lane init.
+PRIVATE_CFG=$(sed -n 's/^private:[[:space:]]*//p' "$AD/registry/config.yml" 2>/dev/null | head -1 | tr -d '"'"'"' ')
+case "$PRIVATE_CFG" in true) : ;; *) PRIVATE_CFG=false ;; esac
+if [ -f "$AD/.gitignore" ]; then
+  GI_RESULT=$(python3 - "$AD/.gitignore" "$PRIVATE_CFG" <<'PY'
+import sys
+path, private = sys.argv[1], sys.argv[2] == "true"
+
+ORIG_SCRIPTS_LOCAL = "/scripts/local/\n"
+PRIVATE_SCRIPTS_LOCAL = (
+    "# private: true (registry/config.yml) — scripts/local/ is tracked in this fork, not ignored.\n"
+)
+ORIG_YAML_BLOCK = "/registry/*.yaml\n/registry/rules.yaml\n"
+PRIVATE_YAML_BLOCK = (
+    "# private: true (registry/config.yml) — registry/repos.yaml and registry/rules.yaml are\n"
+    "# tracked in this fork, not ignored. These two stay ignored regardless of private: (lane rules\n"
+    "# pull's own SHA-pinned copy, and secrets-scan dismissal bookkeeping):\n"
+    "/registry/rules.shared.yaml\n"
+    "/registry/secrets-ignored.yaml\n"
+)
+
+text = open(path).read()
+changed = False
+if private:
+    if ORIG_SCRIPTS_LOCAL in text:
+        text = text.replace(ORIG_SCRIPTS_LOCAL, PRIVATE_SCRIPTS_LOCAL, 1); changed = True
+    if ORIG_YAML_BLOCK in text:
+        text = text.replace(ORIG_YAML_BLOCK, PRIVATE_YAML_BLOCK, 1); changed = True
+else:
+    if PRIVATE_SCRIPTS_LOCAL in text:
+        text = text.replace(PRIVATE_SCRIPTS_LOCAL, ORIG_SCRIPTS_LOCAL, 1); changed = True
+    if PRIVATE_YAML_BLOCK in text:
+        text = text.replace(PRIVATE_YAML_BLOCK, ORIG_YAML_BLOCK, 1); changed = True
+if changed:
+    open(path, "w").write(text)
+print("CHANGED" if changed else "UNCHANGED")
+PY
+)
+  if [ "$GI_RESULT" = CHANGED ]; then
+    if [ "$PRIVATE_CFG" = true ]; then made ".gitignore (private: true — repos.yaml, rules.yaml, scripts/local/ now tracked)"
+    else made ".gitignore (private: false — repos.yaml, rules.yaml, scripts/local/ ignored again)"; fi
+  else
+    kept ".gitignore (already matches private: $PRIVATE_CFG)"
+  fi
 fi
 
 # ---------------------------------------------------------------- 4. memory where Claude looks for it

@@ -32,6 +32,14 @@ written down. Inside a git checkout it also says how far past the release tag yo
   real uncommitted files with nowhere shown to check. A new `== control plane` section (reusing
   `status-all`'s existing dirty/unpushed-counting logic) reports uncommitted file count, unpushed
   commit count, and whether a push remote is configured (or disabled, per the fix above).
+- **`private: true` in `registry/config.yml`**: upgrades the documented `git add -f` workaround
+  (`docs/extending.md`, "Tracking your control plane's own files in a private fork") into a real
+  mode. `lane init` asks about it interactively (like the tracker/stale-days questions), or takes
+  `--private`/`--public`, and rewrites `.gitignore` so `registry/repos.yaml`,
+  `registry/rules.yaml` and `scripts/local/` are tracked instead of ignored — every other ignore
+  rule (`repos/`, `lanes/`, `memory/`, `knowledge/`, `registry/rules.shared.yaml`,
+  `registry/.shared-cache/`, `registry/secrets-ignored.yaml`) is untouched. Idempotent, and safe
+  to flip retroactively by editing `config.yml` and re-running `lane init`.
 - **`lane secrets <repo> ignore <path-or-glob>...`**: marks a `scan` candidate as
   reviewed-and-not-actually-a-secret, without writing any deny rule. Most candidates from `scan`
   turn out to be ordinary source, not secrets, and previously the only way to make `lane doctor`

@@ -117,14 +117,31 @@ private fork, that constraint doesn't apply to you, and a team might reasonably 
 `registry/repos.yaml` or `registry/rules.yaml` tracked so everyone's checkout starts from the same
 state instead of each person hand-building their own.
 
-You can override the defaults deliberately, per file:
+### `private: true` — the supported mechanism
+
+Set `private: true` in `registry/config.yml` and re-run `lane init` (it asks about this
+interactively too, the same way it asks about the tracker — or pass `--private`/`--public`
+non-interactively). It rewrites `.gitignore` so `registry/repos.yaml`, `registry/rules.yaml` and
+`scripts/local/` are genuinely tracked instead of ignored, and leaves every other ignore rule —
+`repos/`, `lanes/`, `memory/`, `knowledge/`, `.cache/`, `registry/rules.shared.yaml`,
+`registry/.shared-cache/`, `registry/secrets-ignored.yaml` — exactly as it was: those stay
+ignored regardless of `private:`, since they're either machine-rebuildable state or already have
+their own separate sharing mechanism (`lane rules pull`, above). Safe to re-run, and safe to flip
+back to `private: false` later — `lane init` applies whichever state `config.yml` currently says,
+every time.
+
+### The manual override, for just one file
+
+If you want to track only *one* of the three files rather than all of them, `private: true` is
+too broad — use the manual recipe instead:
 
 ```
 git add -f registry/repos.yaml        # force-add despite .gitignore
 ```
 
-or remove the specific line from `.gitignore` so it stops being ignored at all. This documents the
-override; it does not change what `.gitignore` ships by default — do that yourself, in your fork.
+or remove that one specific line from `.gitignore` by hand so it stops being ignored at all. This
+is the fallback for a partial case; `private: true` is the supported mechanism for the common one
+(a whole team tracking all three together).
 
 **The real tradeoff**: once a file is tracked, it participates in `lane upgrade`'s fast-forward
 check exactly like any other tracked file (`guard.py`, `.claude/settings.json`, …). A local edit to
