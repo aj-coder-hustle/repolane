@@ -28,6 +28,14 @@ lane hello
 - **Built-ins always win.** If `scripts/local/` has a file with the same name as a real `lane`
   command, the built-in runs and the local file never does. `lane doctor` flags this — "shadowed
   by the built-in `<name>` command and will never run" — so it is never a silent surprise.
+- **The command name is never a path.** `lane <name>` only ever looks up a bare filename directly
+  inside `scripts/local/` — a name containing `/` (path traversal, or reaching some other
+  executable entirely) is rejected before the lookup happens, not resolved.
+- **The `# lane: ` one-liner is untrusted display text**, not just local shorthand: it can arrive
+  from a shared repo's `scripts.d/` via `lane rules pull` (below), landing on every teammate's
+  machine with its comment intact. `lane help` strips control/escape characters from it and caps
+  it at 72 characters before printing, so it can't clear the screen, recolor the terminal, or
+  otherwise do anything beyond show a one-line description.
 
 ## Shared, git-backed rules: `lane rules pull`
 
@@ -76,6 +84,12 @@ At its root:
 - **Namespaced ids.** A rule pulled from a shared source has its `id` prefixed (`shared-<id>`,
   or `<repo-name>-<id>` when the shared repo names itself), so it cannot silently collide with —
   or shadow — a rule you wrote by hand.
+- **Duplicate ids are rejected, not merged.** If a namespace prefix isn't enough — two rules
+  genuinely end up with the identical id, in one file or across `registry/rules.yaml` and
+  `registry/rules.shared.yaml` — the loader keeps the first one enforced and refuses the rest,
+  reported by `lane doctor` exactly like any other broken rule. Two rules sharing an id would
+  otherwise make `lane doctor`'s own per-rule verification meaningless (it couldn't tell which
+  one actually fired), so this is checked structurally, not left to convention.
 - **No remote code.** This deliberately supports only a declarative `rules.yaml` (structurally
   validated, and the loader can only ever add a `deny` — see
   [`docs/rules.md`](rules.md#rules-of-your-own)) and a directory of plain scripts you can read

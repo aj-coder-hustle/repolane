@@ -129,7 +129,7 @@ memory index for every repo in scope.
 
 `lane doctor` compiles it and fires nine named probes at it — eight that must be refused and one
 ordinary command that must not — so you find out when the rules stop being enforced. Behind that
-there is a 179-case suite in `scripts/hooks/test-guard.sh`, which `lane doctor -v` runs.
+there is a 184-case suite in `scripts/hooks/test-guard.sh`, which `lane doctor -v` runs.
 
 ### 3. The board
 
@@ -180,12 +180,17 @@ lane run/gh     run something in one repo without leaving the lane
 lane ref        attach outside code or docs    lane note     write something worth remembering
 lane merge      two pieces of work turned out to be one
 lane import     adopt past Claude conversations
-lane doctor     check the safety rules are working
+lane doctor     check the safety rules are working, and what needs attention
+lane sync       check a repo's real GitHub branch protection
+lane rules      pull a team's shared, SHA-pinned rules.yaml
+lane upgrade    pull the latest release, ff-only, never an automatic merge
 lane help       the full list
 ```
 
 Every command also exists as its own executable — `lane-start`, `lane-run`, `lane-memory` — so they
 run from any directory with no `cd`. Full reference in [`docs/commands.md`](docs/commands.md).
+Your own commands work the same way: anything executable in `scripts/local/` becomes `lane <name>`
+with no dispatcher edit needed — see [`docs/extending.md`](docs/extending.md).
 
 ## Using it without Claude
 
@@ -206,6 +211,8 @@ and in this repo:
 | [`docs/commands.md`](docs/commands.md) | the full command reference |
 | [`docs/board.md`](docs/board.md) | the web board |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | the ways it actually breaks, and how to recover |
+| [`docs/releasing.md`](docs/releasing.md) | how a merged PR actually becomes a release |
+| [`docs/extending.md`](docs/extending.md) | `scripts/local/` custom commands, and `lane rules pull` for shared rules |
 
 Each folder has its own README explaining what lives there:
 [`scripts/`](scripts/README.md) · [`scripts/hooks/`](scripts/hooks/README.md) ·

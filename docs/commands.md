@@ -10,6 +10,7 @@ right now, and `lane help` for this list in your terminal.
 | `lane init` | set this machine up (safe to re-run) |
 | `lane add <git-url\|path> [name]` | bring a repo under management — a local checkout with no `origin` remote is registered as local-only |
 | `lane import` | bring past Claude conversations in (optional) |
+| `./lane install` | put `lane` and the long-form commands on your `PATH` — safe to re-run on the same checkout; repointing to a *different* checkout asks first (or refuses non-interactively) unless you pass `--force` |
 
 ## Doing the work
 
@@ -94,12 +95,15 @@ lists any managed GitHub repo whose branch protection hasn't been checked with `
 only ever tells you; clearing a lane, or syncing a repo, is always a command you type — `lane sync`
 is never run for you. It also checks, advisory-only like the rest of this list: whether the `lane`
 resolved on your `PATH` actually points at this checkout (`lane install` if not); whether `gh` is
-installed and authenticated (`lane sync`, `lane gh` need it); and, per active lane, whether what
-its spec file says it contains (`repo:`/`branch:` pairs) still matches what's actually checked out
-under `lanes/<id>/` on disk. `lane doctor -v` adds every wiring
+installed and authenticated (`lane sync`, `lane gh` need it); per active lane, whether what its
+spec file says it contains (`repo:`/`branch:` pairs) still matches what's actually checked out
+under `lanes/<id>/` on disk; any repo with a candidate secret/credential filename nobody has
+declared with `lane secrets`; any `scripts/local/<name>` shadowed by a built-in of the same name
+(it will never run); and — printed first, more prominently than the rest — whether a configured
+`lane rules pull` source has moved since it was last pinned. `lane doctor -v` adds every wiring
 location and runs the full 184-case suite against a throwaway control plane it builds and deletes.
-Any failure exits non-zero — a stale lane, an unsynced repo, a missing `gh`, or spec/worktree
-drift is not one, so it does not.
+Any failure exits non-zero — none of the advisories above do, only a genuinely broken rule or
+guard does.
 
 `lane upgrade` automates the manual procedure in
 [Troubleshooting → "Upgrade friction"](troubleshooting.md#upgrade-friction-the-clone-is-the-control-plane):

@@ -22,6 +22,11 @@ owner:
   name: Sam Okonjo          # named in hook messages: "ask Sam Okonjo first"
 tracker:
   url: https://example.atlassian.net/browse/{key}
+lanes:
+  stale_days: 21                    # lane doctor flags a lane untouched this long; 0 turns it off
+  delete_sessions_on_done: false    # default answer to lane done's session-cleanup prompt
+protection:
+  sync_days: 7                      # lane doctor flags a repo unchecked by lane sync this long; 0 off
 ```
 
 `{key}` is replaced with the lane's `ticket:` field, or with the key at the front of its id
@@ -60,6 +65,10 @@ Two optional fields earn their keep:
   repo name or its short, case-insensitively, and the board labels repos with it.
 - **`old_paths`** records where an adopted checkout came from, which is how `lane import` finds the
   Claude conversations you already had about that repo.
+- **`protected_branches`** and **`protection_synced`** are written by `lane sync` — the repo's real
+  GitHub branch protection, as of the date given, unioned into the guard's protected-branch check
+  alongside `default_branch`/`compare_branch` and the `main`/`master`/`develop` baseline. Never
+  written by anything else; `lane doctor` flags a repo where this has gone stale.
 
 `stack` and `product` are yours to fill in; nothing reads them, but a session does.
 

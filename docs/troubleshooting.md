@@ -182,7 +182,7 @@ One of the nine is a control: *"ordinary work is untouched"* must come back `pas
 that failed, the guard has become too strict rather than too loose, and every ordinary command in
 every session is being refused.
 
-Run `bash scripts/hooks/test-guard.sh` for the detail — 179 cases against the same guard will say
+Run `bash scripts/hooks/test-guard.sh` for the detail — 184 cases against the same guard will say
 far more than nine will. If you are keeping the change, add a case for it; a rule with no test is a
 rule that will quietly stop working.
 

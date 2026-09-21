@@ -99,6 +99,14 @@ Values are single-line: the parser reads a deliberately small YAML subset — `r
 per rule, scalars and one-line `{ … }` or an indented block under `when:`. Anything else is
 reported as an error rather than half-understood.
 
+The guard doesn't only read `registry/rules.yaml` — it reads every `registry/rules.*.yaml` file
+and unions them all through this identical parse/validate/deny-only path, no special-casing for
+any of them. `registry/rules.shared.yaml` is the one you'll usually see alongside it: it's what
+`lane rules pull` (a team-shared, SHA-pinned source of rules — see
+[`docs/extending.md`](extending.md)) writes, with every rule id namespaced so it can't silently
+collide with one you typed by hand. A broken rule in either file is caught by `lane doctor` the
+same way, regardless of which file it came from.
+
 `matches` is tested against the same normalised command segments the built-in rules are tested
 against, not against the raw string, so `echo ok && alembic upgrade head` is judged exactly as
 `alembic upgrade head` is. A rule cannot be slipped by chaining.
