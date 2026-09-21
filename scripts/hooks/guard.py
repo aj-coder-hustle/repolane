@@ -79,8 +79,18 @@ def read(path, limit=6000):
 def memory_brief(lane):
     """Cross-repo index + every lane repo's index. Indexes only; Claude opens files it needs."""
     parts = ["MEMORY for this session (indexes; open a linked file when it is relevant):",
-             f"## preferences — {AD}/knowledge/preferences.md", read(f"{AD}/knowledge/preferences.md", 3000).strip() or "(empty)",
-             f"## cross-repo — {AD}/memory/MEMORY.md", read(f"{AD}/memory/MEMORY.md", 3000).strip()]
+             f"## preferences — {AD}/knowledge/preferences.md", read(f"{AD}/knowledge/preferences.md", 3000).strip() or "(empty)"]
+    # knowledge/shared/ (lane rules pull's knowledge.d/, docs/extending.md) is written but was
+    # never read by anything -- it landed on disk and stayed invisible unless someone wired a
+    # pointer to it by hand. Team knowledge is the same "applies to every session, forever" shape
+    # as knowledge/preferences.md, so it's read the same automatic way, one section per file
+    # (not concatenated) so each file's own name stays visible.
+    shared_dir = f"{AD}/knowledge/shared"
+    if os.path.isdir(shared_dir):
+        for f in sorted(os.listdir(shared_dir)):
+            if f.endswith(".md"):
+                parts += [f"## shared: {f} — {shared_dir}/{f}", read(f"{shared_dir}/{f}", 3000).strip() or "(empty)"]
+    parts += [f"## cross-repo — {AD}/memory/MEMORY.md", read(f"{AD}/memory/MEMORY.md", 3000).strip()]
     for r in lane_repo_dirs(lane):
         parts += [f"## {r} — {AD}/memory/{r}/MEMORY.md", read(f"{AD}/memory/{r}/MEMORY.md", 3000).strip() or "(empty)"]
     refs = lane_refs(lane)

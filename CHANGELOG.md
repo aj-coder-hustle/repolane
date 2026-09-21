@@ -8,7 +8,14 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **`knowledge/shared/` (written by `lane rules pull`'s `knowledge.d/`) was never read by
+  anything.** It landed on disk and stayed invisible to a session unless someone wired a pointer
+  to it by hand. Every `.md` file there is now injected into every session's context
+  automatically, the same way `knowledge/preferences.md` already is — same "applies to every
+  session, forever" shape as your own preferences, so shared team knowledge actually reaches a
+  session without extra setup.
 
 ## [0.7.0] — 2026-09-21
 
