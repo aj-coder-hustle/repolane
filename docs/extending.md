@@ -61,6 +61,11 @@ At its root:
   an `example:` for every rule so `lane doctor` can verify it is actually refused.
 - `scripts.d/` — **optional.** Files here are copied (never symlinked) into your local
   `scripts/local/` — see above.
+- `knowledge.d/` — **optional.** Plain markdown, copied (never symlinked) into
+  `knowledge/shared/` — never directly into `knowledge/`, so a shared file can never silently
+  overwrite or shadow one you typed by hand. Unlike `rules.yaml` and `scripts.d/`, these files
+  aren't enforced by anything — they're read by a session like the rest of `knowledge/`, not
+  validated or executed.
 
 ### The security properties, on purpose
 
@@ -90,6 +95,10 @@ At its root:
   reported by `lane doctor` exactly like any other broken rule. Two rules sharing an id would
   otherwise make `lane doctor`'s own per-rule verification meaningless (it couldn't tell which
   one actually fired), so this is checked structurally, not left to convention.
+- **`knowledge.d/` never overwrites your own knowledge.** A shared `knowledge.d/preferences.md`
+  cannot collide with a local `knowledge/preferences.md` — it lands in the separate
+  `knowledge/shared/` namespace instead, the same "copied into a clearly-separate location, never
+  merged into what you already have" principle as `registry/rules.shared.yaml`.
 - **No remote code.** This deliberately supports only a declarative `rules.yaml` (structurally
   validated, and the loader can only ever add a `deny` — see
   [`docs/rules.md`](rules.md#rules-of-your-own)) and a directory of plain scripts you can read

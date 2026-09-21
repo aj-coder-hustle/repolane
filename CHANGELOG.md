@@ -8,6 +8,15 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
+### Added
+
+- **`lane rules pull` also carries `knowledge.d/`**: the shared repo's optional layout gains a
+  `knowledge.d/` directory alongside `rules.yaml` and `scripts.d/` — plain markdown, copied
+  (never symlinked) under the same SHA pin. Unlike rules/scripts, these files aren't validated or
+  executed, just read by a session — but they still can't silently overwrite something you typed
+  by hand, so they land in a new `knowledge/shared/` namespace, never directly in `knowledge/`.
+  `lane rules status` reports what's loaded there too.
+
 ### Fixed
 
 - **`lane init` never disabled the template's own push remote**: after cloning this public
