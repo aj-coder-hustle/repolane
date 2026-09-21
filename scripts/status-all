@@ -5,7 +5,11 @@ source "$(python3 -c 'import os,sys;print(os.path.dirname(os.path.realpath(sys.a
 echo "== control plane (this checkout itself — docs/concepts.md: \"the clone is the control plane\")"
 if [ -d "$AD/.git" ] || [ -f "$AD/.git" ]; then
   cp_dirty=$(git -C "$AD" status --porcelain | wc -l | tr -d ' ')
-  cp_unpushed=$(git -C "$AD" log --oneline '@{u}..HEAD' 2>/dev/null | wc -l | tr -d ' ')
+  # No upstream configured (a fresh clone that's never been pushed) makes `git log @{u}..HEAD`
+  # exit non-zero; under lib.sh's `set -euo pipefail` that kills the whole script right here,
+  # silently truncating everything below -- `|| true` so an absent upstream just reads as 0.
+  cp_unpushed=$(git -C "$AD" log --oneline '@{u}..HEAD' 2>/dev/null | wc -l | tr -d ' ' || true)
+  cp_unpushed=${cp_unpushed:-0}
   if git -C "$AD" remote get-url origin >/dev/null 2>&1; then
     cp_push_url=$(git -C "$AD" remote get-url --push origin 2>/dev/null || echo "")
     if [ "$cp_push_url" = "DISABLED-set-a-private-remote-first" ]; then

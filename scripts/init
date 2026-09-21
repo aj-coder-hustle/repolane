@@ -18,7 +18,7 @@ while [ -L "$_self" ]; do
 done
 AD="$(cd "$(dirname "$_self")/.." && pwd)"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
-OWNER=""; TRACKER=""; ASSUME_YES=0; CHECK_ONLY=0; DELETE_SESSIONS_ON_DONE=""; SYNC_DAYS=""; PRIVATE=""
+OWNER=""; TRACKER=""; ASSUME_YES=0; CHECK_ONLY=0; DELETE_SESSIONS_ON_DONE=""; SYNC_DAYS=""; PRIVATE=""; PRIVATE_EXPLICIT=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -30,8 +30,8 @@ while [ $# -gt 0 ]; do
     --claude-home) CLAUDE_HOME="${2:-}"; shift 2 ;;
     --delete-sessions-on-done) DELETE_SESSIONS_ON_DONE="${2:-}"; shift 2 ;;
     --sync-days) SYNC_DAYS="${2:-}"; shift 2 ;;
-    --private) PRIVATE=true; shift ;;
-    --public) PRIVATE=false; shift ;;
+    --private) PRIVATE=true; PRIVATE_EXPLICIT=1; shift ;;
+    --public) PRIVATE=false; PRIVATE_EXPLICIT=1; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     --check) CHECK_ONLY=1; shift ;;
     -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -219,7 +219,29 @@ for d in registry/lanes memory knowledge/conventions knowledge/domains repos lan
 done
 
 if [ -f "$AD/registry/config.yml" ] && ! grep -q "YOUR NAME" "$AD/registry/config.yml"; then
-  kept "registry/config.yml"
+  # --private/--public on an already-initialized plane used to be silently ignored: PRIVATE was
+  # computed but the config.yml-writing heredoc below only ever runs for a brand-new file. Rewrite
+  # just the `private:` line in place when the flag actually asked for a change from what's there.
+  if [ "$PRIVATE_EXPLICIT" = 1 ] && [ -n "$PRIVATE" ]; then
+    CUR_PRIVATE=$(sed -n 's/^private:[[:space:]]*//p' "$AD/registry/config.yml" | head -1 | tr -d '"'"'"' ')
+    if [ "$CUR_PRIVATE" != "$PRIVATE" ]; then
+      python3 - "$AD/registry/config.yml" "$PRIVATE" <<'PY'
+import re, sys
+path, private = sys.argv[1:3]
+text = open(path).read()
+new, n = re.subn(r"(?m)^private:.*$", f"private: {private}", text, count=1)
+if n == 0:
+    if new and not new.endswith("\n"): new += "\n"
+    new += f"\nprivate: {private}\n"
+open(path, "w").write(new)
+PY
+      made "registry/config.yml (private: $CUR_PRIVATE -> $PRIVATE)"
+    else
+      kept "registry/config.yml"
+    fi
+  else
+    kept "registry/config.yml"
+  fi
 else
   cat > "$AD/registry/config.yml" <<EOT
 # Who this control plane belongs to, and how it should talk to them.
@@ -316,22 +338,41 @@ PRIVATE_YAML_BLOCK = (
 
 text = open(path).read()
 changed = False
+# Tracked separately, not just "did anything change": a hand-edited .gitignore (reworded or
+# reordered from the shipped text) can make one block match and the other silently not, and a
+# blanket "now tracked" message would then be a false claim for the half that didn't move.
+scripts_local_ok = yaml_block_ok = False
 if private:
     if ORIG_SCRIPTS_LOCAL in text:
-        text = text.replace(ORIG_SCRIPTS_LOCAL, PRIVATE_SCRIPTS_LOCAL, 1); changed = True
+        text = text.replace(ORIG_SCRIPTS_LOCAL, PRIVATE_SCRIPTS_LOCAL, 1); changed = True; scripts_local_ok = True
+    elif PRIVATE_SCRIPTS_LOCAL in text:
+        scripts_local_ok = True  # already flipped
     if ORIG_YAML_BLOCK in text:
-        text = text.replace(ORIG_YAML_BLOCK, PRIVATE_YAML_BLOCK, 1); changed = True
+        text = text.replace(ORIG_YAML_BLOCK, PRIVATE_YAML_BLOCK, 1); changed = True; yaml_block_ok = True
+    elif PRIVATE_YAML_BLOCK in text:
+        yaml_block_ok = True  # already flipped
 else:
     if PRIVATE_SCRIPTS_LOCAL in text:
-        text = text.replace(PRIVATE_SCRIPTS_LOCAL, ORIG_SCRIPTS_LOCAL, 1); changed = True
+        text = text.replace(PRIVATE_SCRIPTS_LOCAL, ORIG_SCRIPTS_LOCAL, 1); changed = True; scripts_local_ok = True
+    elif ORIG_SCRIPTS_LOCAL in text:
+        scripts_local_ok = True  # already back to ignored
     if PRIVATE_YAML_BLOCK in text:
-        text = text.replace(PRIVATE_YAML_BLOCK, ORIG_YAML_BLOCK, 1); changed = True
+        text = text.replace(PRIVATE_YAML_BLOCK, ORIG_YAML_BLOCK, 1); changed = True; yaml_block_ok = True
+    elif ORIG_YAML_BLOCK in text:
+        yaml_block_ok = True  # already back to ignored
 if changed:
     open(path, "w").write(text)
-print("CHANGED" if changed else "UNCHANGED")
+print(("CHANGED" if changed else "UNCHANGED") + " " +
+      ("scripts_local:ok" if scripts_local_ok else "scripts_local:MISMATCH") + " " +
+      ("yaml_block:ok" if yaml_block_ok else "yaml_block:MISMATCH"))
 PY
 )
-  if [ "$GI_RESULT" = CHANGED ]; then
+  GI_STATE="${GI_RESULT%% *}"; GI_REST="${GI_RESULT#* }"
+  case "$GI_REST" in *MISMATCH*)
+    warn ".gitignore doesn't match the shipped private: block for one or both of repos.yaml/rules.yaml/scripts/local/ ($GI_REST) — it looks hand-edited; lane init left it alone rather than guess. Edit it by hand to match private: $PRIVATE_CFG."
+    ;;
+  esac
+  if [ "$GI_STATE" = CHANGED ]; then
     if [ "$PRIVATE_CFG" = true ]; then made ".gitignore (private: true — repos.yaml, rules.yaml, scripts/local/ now tracked)"
     else made ".gitignore (private: false — repos.yaml, rules.yaml, scripts/local/ ignored again)"; fi
   else
@@ -377,10 +418,15 @@ fi
 # only when it still demonstrably points at the known public template — never touch a remote
 # someone has already pointed somewhere of their own.
 DISABLED_PUSH_SENTINEL="DISABLED-set-a-private-remote-first"
+# Normalized, not a raw string enum: a trailing slash or a different case in the org name (GitHub
+# itself treats both as the same repo) was confirmed to slip past an exact-match comparison,
+# silently leaving push live on a remote that still is the public template.
+normalize_repo_url(){
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -e 's#/*$##' -e 's#\.git$##'
+}
 is_known_template_url(){
-  case "$1" in
-    https://github.com/aj-oss-tools/repolane|https://github.com/aj-oss-tools/repolane.git| \
-    git@github.com:aj-oss-tools/repolane|git@github.com:aj-oss-tools/repolane.git) return 0 ;;
+  case "$(normalize_repo_url "$1")" in
+    https://github.com/aj-oss-tools/repolane|git@github.com:aj-oss-tools/repolane) return 0 ;;
     *) return 1 ;;
   esac
 }

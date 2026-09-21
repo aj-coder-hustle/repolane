@@ -153,6 +153,10 @@ PY
       mkdir -p "$AD/scripts/local"
       n=0
       for f in "$REPO_DIR/scripts.d"/*; do
+        # A symlink passes [ -f ] (it follows the link) -- reject it explicitly first, so a
+        # shared repo can't ship a symlink to an arbitrary file readable by whoever pulls it and
+        # have its contents copied in under an innocent-looking name.
+        [ -L "$f" ] && { echo "  skipped scripts.d/$(basename "$f") — a symlink, not a plain file" >&2; continue; }
         [ -f "$f" ] || continue
         cp "$f" "$AD/scripts/local/$(basename "$f")"
         chmod +x "$AD/scripts/local/$(basename "$f")"
@@ -170,6 +174,11 @@ PY
       mkdir -p "$AD/knowledge/shared"
       n=0
       for f in "$REPO_DIR/knowledge.d"/*; do
+        # Same reason as scripts.d/ above -- and more consequential here, since knowledge/ is
+        # read directly into a session's context, making an unchecked symlink a real exfiltration
+        # path (a shared repo could ship a symlink to a credentials file or SSH key and have its
+        # contents copied straight into what a future session reads).
+        [ -L "$f" ] && { echo "  skipped knowledge.d/$(basename "$f") — a symlink, not a plain file" >&2; continue; }
         [ -f "$f" ] || continue
         cp "$f" "$AD/knowledge/shared/$(basename "$f")"
         n=$((n+1))
