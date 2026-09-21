@@ -20,7 +20,7 @@ S="$AD/scripts"
 # command → implementation, and the one line shown in `lane help`
 map(){ case "$1" in
   init)        echo "$S/init|set this machine up (safe to re-run)" ;;
-  add)         echo "$S/repo-add|bring a repo under management: lane add <git-url> [name]" ;;
+  add)         echo "$S/lane-add|bring a repo under management: lane add <git-url> [name]" ;;
   start)       echo "$S/lane-start|start a piece of work: lane start <id> <repo> [<repo>…]" ;;
   resume)      echo "$S/lane-resume|pick work back up: lane resume <id>" ;;
   park)        echo "$S/lane-park|leave work for later: lane park <id> \"<note>\"" ;;
@@ -28,7 +28,7 @@ map(){ case "$1" in
   status)      echo "$S/status-all|where everything stands" ;;
   brief)       echo "$S/lane-brief|catch up on one piece of work: lane brief <id>" ;;
   board)       echo "$S/lane-board|open the board in a browser" ;;
-  with)        echo "$S/lane-add|add a repo to work already started: lane with <id> <repo>" ;;
+  with)        echo "$S/lane-with|add a repo to work already started: lane with <id> <repo>" ;;
   run)         echo "$S/lane-run|run a command inside a repo: lane run <repo> <cmd…>" ;;
   gh)          echo "$S/lane-gh|GitHub inside a repo: lane gh <repo> pr create" ;;
   ref)         echo "$S/lane-ref|attach outside code or docs: lane ref <id> add <path>" ;;

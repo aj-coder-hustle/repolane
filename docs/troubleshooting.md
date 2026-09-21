@@ -276,7 +276,7 @@ run it with the marker they can see: ALLOW_DEFAULT_BRANCH_PUSH=1 git push …
 
 ```
 'SHOP-418' is a different lane. This session is in 'SHOP-412'. Ask John Doe to add that repo
-with scripts/lane-add SHOP-412 <repo>, or switch lanes.
+with scripts/lane-with SHOP-412 <repo>, or switch lanes.
 ```
 
 If you see wording like that, no amount of approving prompts will help: the refusal is not a

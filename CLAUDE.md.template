@@ -59,7 +59,7 @@ It is loaded into every session started anywhere below it.
    with each prompt (where you are, branch, ahead/behind origin, uncommitted). Never mention `repos/` or the old
    checkouts; they are frozen and the hook blocks them. In a resumed conversation, translate old paths silently.
 14. Inside a lane, the work stays in it. Never propose or create another worktree or lane from a
-   worktree; if a repo is missing, `lane-add <id> <repo>`. Only when {{owner}} himself asks for separate, unrelated
+   worktree; if a repo is missing, `lane-with <id> <repo>`. Only when {{owner}} himself asks for separate, unrelated
    work: park this one, ExitWorktree keep, then start the new one from the root. The hook refuses the shortcuts.
 15. Talk plainly: simple words, no jargon. Prefer an ASCII diagram to a long explanation. Never create an artifact
    without asking first.

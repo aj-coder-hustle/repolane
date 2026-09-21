@@ -15,5 +15,7 @@ They are the same code either way. Adding a command means adding a symlink here 
 in `../lane`; `../scripts/README.md` has the checklist.
 
 The names do not always match the script: `lane-status` points at `status-all`, `lane-audit` at
-`branch-audit`, `lane-help` and `lane-menu` both at `menu`, `lane-init` at `init`, and
-`lane-repo-add` at `repo-add`.
+`branch-audit`, `lane-help` and `lane-menu` both at `menu`, and `lane-init` at `init`. `lane-add`
+and `lane-with` are the exception worth calling out by name: they used to point at each other's
+scripts backwards (`lane-add` at a script implementing `lane with`, and vice versa) — a real bug,
+not just confusing naming. Both now point at the script with the matching name.

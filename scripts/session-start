@@ -68,7 +68,7 @@ PY
   wts=$(ls -d "$LANES"/*/"$repo" 2>/dev/null | sed "s|$LANES/||; s|/$repo||" || true)
   if [ -n "$cur" ]; then
     if [ -d "$LANES/$cur/$repo" ]; then echo "You are already inside lane '$cur', which has this repo. Re-anchor every path to $LANES/$cur/$repo and continue."
-    else echo "WARNING: you are inside lane '$cur' but it has no worktree for '$repo'. Offer: scripts/lane-add $cur $repo, or switch lane."; fi
+    else echo "WARNING: you are inside lane '$cur' but it has no worktree for '$repo'. Offer: scripts/lane-with $cur $repo, or switch lane."; fi
   else
     echo
     echo "YOUR FIRST MESSAGE, before answering anything else, must say which repo this is and offer these choices:"
@@ -115,7 +115,7 @@ Dispatcher instructions (details in CLAUDE.md "Dispatcher mode"):
   say so in one line. Never do these silently.
 - Fresh session: list the active lanes above, one line each, and ask which one or what new work to start.
 - Resume: scripts/lane-resume <id>, then EnterWorktree path=<AD>/lanes/<id>/<repo>.  New: EnterWorktree name="<id>/<repo>".
-- Add repo to lane: scripts/lane-add. New repo under management: scripts/repo-add. Old chats: scripts/sessions <repo>,
+- Add repo to lane: scripts/lane-with. New repo under management: scripts/lane-add. Old chats: scripts/sessions <repo>,
   then hand over `claude --resume <session-id>` (any folder); they cannot be switched into mid-session.
 - Leave: scripts/lane-park <id> "<note>" then ExitWorktree keep.
 - If asked what they can do, show the menu below verbatim.

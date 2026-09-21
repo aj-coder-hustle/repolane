@@ -6,7 +6,7 @@ registry/repos.yaml. Called only from lane-sync, after gh has already answered �
 does no network I/O and trusts nothing it is not given directly as argv.
 
 `protected_branches:` uses the same YAML block-list style as `stack: []` elsewhere in this file
-(a block list when non-empty, `[]` when GitHub reports nothing protected — see repo-add's own
+(a block list when non-empty, `[]` when GitHub reports nothing protected — see lane-add's own
 python heredoc, which this matches). An empty list is written deliberately, not omitted, so
 `lane doctor` can tell "synced, nothing extra protected" apart from "never synced".
 """
