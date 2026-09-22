@@ -8,7 +8,19 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Two findings from the multi-plane registry's own adversarial audit, before it ever reached
+  `main`.** Registering a second checkout under a name already used by a different one (usually
+  an auto-derived directory basename collision) silently overwrote the first plane's registered
+  path — the exact "wrong project's data" failure the registry exists to close, reintroduced via
+  the name axis instead of the old symlink axis. `lane install` now refuses a name collision with
+  a different path, confirming interactively or refusing outright with no terminal to ask.
+  Separately, `lane install` writing `~/.local/share/lane/planes.py` used a plain `cp` with no
+  `rm -f` first, unlike every other destination write in the same install step — the identical
+  symlink-clobber class of bug the rest of the install logic was already hardened against, just
+  missed in this one spot. Both caught by adversarial testing against the real change before it
+  merged, not found in the wild.
 
 ## [0.8.0] — 2026-09-22
 

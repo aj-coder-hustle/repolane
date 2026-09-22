@@ -166,12 +166,15 @@ case "$cmd" in
     # file at `dest/…`, never back into any checkout.
     rm -f "$dest/lane"
     cp "$AD/scripts/lane-stable-dispatcher" "$dest/lane" && chmod +x "$dest/lane"
+    rm -f "$PY"
     cp "$AD/scripts/lane-planes.py" "$PY"
     echo "installed the stable dispatcher: $dest/lane (routes by plane — see: lane use)"
 
     if [ -n "$migrated_from" ] && [ "$migrated_from" != "$AD" ]; then
       mig_name="$(basename "$migrated_from")"
-      out="$(python3 "$PY" register "$mig_name" "$migrated_from" 2>&1)" && echo "migrated old install: $out"
+      out="$(python3 "$PY" register "$mig_name" "$migrated_from" 2>&1)" \
+        && echo "migrated old install: $out" \
+        || echo "migration: could not register '$mig_name' automatically ($out) — register it by hand later: lane install --as <name> (from $migrated_from)" >&2
     fi
 
     # The 27 long-form names (lane-start, lane-brief, guard-check, …) had the exact same
@@ -239,10 +242,26 @@ except Exception:
         case "${yn:-n}" in [yY]*) : ;; *) echo "lane install: kept '$cur_active' active — plane still registered" >&2; make_active=0 ;; esac
       fi
     fi
-    if [ "$make_active" = 1 ]; then
-      python3 "$PY" register "$name" "$AD" --make-active
+    reg_flags=""; [ "$make_active" = 1 ] && reg_flags="--make-active"
+    reg_out="$(python3 "$PY" register "$name" "$AD" $reg_flags 2>&1)"; reg_rc=$?
+    if [ "$reg_rc" = 2 ]; then
+      # A DIFFERENT checkout is already registered under this name (usually an auto-derived
+      # basename collision) -- refuse to silently repoint it. Confirm explicitly, or refuse
+      # outright with no terminal to ask, same "never silently reassign" rule as --make-active.
+      echo "$reg_out" >&2
+      if [ -t 0 ] && [ -t 2 ]; then
+        printf "repoint '%s' to this checkout instead? [y/N]: " "$name" >&2
+        read -r yn || true
+        case "${yn:-n}" in
+          [yY]*) python3 "$PY" register "$name" "$AD" $reg_flags --force ;;
+          *) echo "lane install: not registered — re-run with --as <a-different-name>" >&2; exit 1 ;;
+        esac
+      else
+        echo "lane install: not registered (no terminal to confirm) — re-run with --as <a-different-name>" >&2
+        exit 1
+      fi
     else
-      python3 "$PY" register "$name" "$AD"
+      echo "$reg_out"
     fi
 
     case ":$PATH:" in

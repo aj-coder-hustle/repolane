@@ -118,10 +118,19 @@ def cmd_use(name, cwd):
     return 0
 
 
-def cmd_register(name, path, make_active):
+def cmd_register(name, path, make_active, force=False):
     data = load()
     path = norm(path)
     is_first = not data["planes"]
+    existing = data["planes"].get(name)
+    # Two different checkouts sharing a name (usually the auto-derived directory basename) used
+    # to silently overwrite one another's registry entry -- the exact "wrong project's data"
+    # failure this whole feature exists to close, just moved from the symlink axis to the name
+    # axis. A name collision with a DIFFERENT path now refuses unless --force says otherwise.
+    if existing and norm(existing.get("path", "")) != path and not force:
+        print(f"COLLISION: '{name}' is already registered -> {existing.get('path')}", file=sys.stderr)
+        print(f"           this would repoint it to -> {path}", file=sys.stderr)
+        return 2
     data["planes"][name] = {
         "path": path,
         "registered": datetime.datetime.now().astimezone().isoformat(),
@@ -185,9 +194,9 @@ def main():
         return cmd_use(args[1], args[2] if len(args) > 2 else os.getcwd())
     if sub == "register":
         if len(args) < 3:
-            sys.stderr.write("usage: planes.py register <name> <path> [--make-active]\n")
+            sys.stderr.write("usage: planes.py register <name> <path> [--make-active] [--force]\n")
             return 2
-        return cmd_register(args[1], args[2], "--make-active" in args[3:])
+        return cmd_register(args[1], args[2], "--make-active" in args[3:], "--force" in args[3:])
     if sub == "doctor":
         cwd = args[1] if len(args) > 1 else os.getcwd()
         this_path = args[2] if len(args) > 2 else os.getcwd()
