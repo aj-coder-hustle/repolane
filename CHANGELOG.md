@@ -8,6 +8,10 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.8.0] — 2026-09-22
+
 ### Added
 
 - **A machine can now register more than one control plane at once.** `~/.local/share/lane/planes.json`
@@ -343,7 +347,8 @@ paths that get walked every day.
   the board fetches its typefaces from Google Fonts, so "no network calls beyond its own server" was
   false; [`docs/board.md`](docs/board.md) now says so, and how to remove them.
 
-[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/aj-oss-tools/repolane/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/aj-oss-tools/repolane/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/aj-oss-tools/repolane/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/aj-oss-tools/repolane/compare/v0.6.0...v0.7.0
