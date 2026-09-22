@@ -95,10 +95,10 @@
   "permissions": {
     "allow": [
       "Bash(lane-merge-plan:*)",
-      "Bash(lane-status:*)",
-      "Bash(lane-brief:*)",
-      "Bash(lane-menu:*)",
-      "Bash(lane-sessions:*)",
+      "Bash(*/bin/lane-status:*)",
+      "Bash(*/bin/lane-brief:*)",
+      "Bash(*/bin/lane-menu:*)",
+      "Bash(*/bin/lane-sessions:*)",
       "Bash(lane-env-check:*)",
       "Bash(lane-env-keys:*)",
       "Bash(lane-workspace:*)"
