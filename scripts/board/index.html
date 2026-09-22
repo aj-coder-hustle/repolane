@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>lane-board</title>
+<title id="pageTitle">lane-board</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500;600&family=Roboto+Serif:opsz,wght@8..144,300;8..144,400&display=swap">
 <link rel="stylesheet" href="/board.css">
@@ -52,6 +52,7 @@
 <body>
 <div id="cmd">
   <span class="brand" id="homeBtn" tabindex="0" title="Home (esc)">lane-board</span>
+  <select class="planeSel hidden" id="planeSel" title="Switch which registered control plane the board shows"></select>
   <span class="crumb" id="crumb"></span>
   <button class="switch" id="switchBtn" title="Jump to a lane or repo">
     <svg class="ic sm" viewBox="0 0 16 16"><use href="#g-search"/></svg>jump <kbd>&#8984;K</kbd></button>

@@ -24,6 +24,38 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 AD = os.path.dirname(os.path.dirname(HERE))
 LANES, REPOS, LANES_DIR, BIN = f"{AD}/lanes", f"{AD}/repos", f"{AD}/registry/lanes", f"{AD}/bin"
 TOKEN = secrets.token_urlsafe(24)
+
+# ---------------------------------------------------------------- multi-plane registry
+# ~/.local/share/lane/planes.json (docs/concepts.md — "the clone is the control plane", plus
+# the multi-plane registry that now sits alongside it). AD above is "the plane this server
+# happens to have been started from/inside" — it stays the default, cached, fast path (the
+# background refresh loops below only ever touch it). Any OTHER registered plane is read fresh,
+# on demand, never cached here and never touched by the background loops.
+PLANES_JSON = os.path.expanduser("~/.local/share/lane/planes.json")
+
+def load_planes():
+    try:
+        with open(PLANES_JSON) as f: data = json.load(f)
+    except (OSError, ValueError): return {"planes": {}, "active": None}
+    data.setdefault("planes", {}); data.setdefault("active", None)
+    return data
+
+def resolve_ad(name):
+    """A plane name from a request -> its absolute checkout path. None/""/"home" is always this
+    server's own AD, so a client that never mentions `plane` behaves exactly as before. Any other
+    name must be a real entry in the registry — never trusted blindly, always checked here, on
+    every request, including state-changing ones."""
+    if not name or name == "home": return AD
+    info = load_planes().get("planes", {}).get(name)
+    if not info: raise ValueError(f"unknown plane '{name}'")
+    return os.path.realpath(info["path"])
+
+def planes_list():
+    data = load_planes()
+    out = []
+    for n, info in sorted(data.get("planes", {}).items()):
+        out.append({"name": n, "path": info.get("path"), "active": n == data.get("active"), "home": info.get("path") and os.path.realpath(info["path"]) == AD})
+    return {"planes": out, "home": AD, "active": data.get("active")}
 PORT = int(os.environ.get("WS_BOARD_PORT", "7777"))
 SECRET = re.compile(r"(^|/)(\.env(\.[\w.-]+)?|[^/]*\.(pem|key|p12|pfx)|[^/]*credentials[^/]*\.json|secrets?\.(json|ya?ml|toml))$")
 SAFE_SUFFIX = re.compile(r"\.(example|sample|template|dist)$")
@@ -42,11 +74,12 @@ def sh(args, cwd=None, timeout=60, inp=None):
 
 def git(cwd, *a): return sh(["git", "-C", cwd, *a])[1].rstrip("\n")
 
-def defaults():
+def defaults(ad=None):
     """Each repo's integration branch as the registry declares it. The remote's own HEAD can be
     stale - api still advertises master while the team moved to develop - so the
     registry wins over git here."""
-    t = open(f"{AD}/registry/repos.yaml").read()
+    ad = ad or AD
+    t = open(f"{ad}/registry/repos.yaml").read()
     out = {m.group(1): m.group(2) for m in
            re.finditer(r"^  ([\w.-]+):\n(?:    .*\n)*?    default_branch: (\S+)", t, re.M)}
     # compare_branch overrides default_branch where a repo integrates somewhere else
@@ -54,11 +87,14 @@ def defaults():
                 re.finditer(r"^  ([\w.-]+):\n(?:    .*\n)*?    compare_branch: (\S+)", t, re.M)})
     return out
 
-def shorts():
-    t = open(f"{AD}/registry/repos.yaml").read()
+def shorts(ad=None):
+    ad = ad or AD
+    t = open(f"{ad}/registry/repos.yaml").read()
     return {m.group(1): m.group(2) for m in re.finditer(r"^  ([\w.-]+):\n(?:    .*\n)*?    short: (\S+)", t, re.M)}
 
-def lane_files(): return sorted(f for f in os.listdir(LANES_DIR) if f.endswith(".md"))
+def lane_files(ad=None):
+    ad = ad or AD
+    return sorted(f for f in os.listdir(f"{ad}/registry/lanes") if f.endswith(".md"))
 
 def parse_ws(path):
     t = open(path).read()
@@ -103,7 +139,7 @@ def pr_live_failing(pr_):
     if not isinstance(pr_, dict) or pr_.get("state") != "OPEN": return False
     return bool((pr_.get("checks") or {}).get("failing"))
 
-def rebase_target(path, r, pr_, spec_base=None):
+def rebase_target(path, r, pr_, spec_base=None, defaults_map=None):
     """How far behind the branch this work will actually merge into.
 
     The compare branch is a property of the repo, declared in registry/repos.yaml
@@ -112,8 +148,11 @@ def rebase_target(path, r, pr_, spec_base=None):
     PR's base, which can point at a one-off branch and, once merged, is history.
     A lane's recorded base is used only for a repo the registry does not define.
     Getting this wrong understates drift: measured against master a branch read as 10 behind
-    when against develop it was 40."""
-    reg = DEFAULTS.get(r.get("repo") or "")
+    when against develop it was 40.
+
+    defaults_map defaults to the home plane's DEFAULTS cache; a request scoped to a different
+    registered plane passes that plane's own freshly-read defaults() instead."""
+    reg = (defaults_map if defaults_map is not None else DEFAULTS).get(r.get("repo") or "")
     base = reg or spec_base
     src = "registry" if reg else ("lane" if spec_base else None)
     if not base or base == r.get("base_branch"):
@@ -145,9 +184,10 @@ def board_uncached():
     return {"lanes": out, "repos": sorted(os.listdir(REPOS)), "generated": time.strftime("%H:%M:%S"), "serverStartedAt": STARTED,
             "tracker": tracker_url()}
 
-def lane_path(lane, repo):
-    p = os.path.realpath(f"{LANES}/{lane}/{repo}")
-    if not p.startswith(os.path.realpath(LANES) + "/") or not os.path.exists(f"{p}/.git"):
+def lane_path(ad, lane, repo):
+    ad = ad or AD
+    p = os.path.realpath(f"{ad}/lanes/{lane}/{repo}")
+    if not p.startswith(os.path.realpath(f"{ad}/lanes") + "/") or not os.path.exists(f"{p}/.git"):
         raise ValueError("not a lane worktree")
     return p
 
@@ -203,14 +243,15 @@ def log(path, n=15, rng=None):
     out = git(path, *args)
     return [dict(zip(["sha", "subject", "author", "when", "date", "refs"], l.split("\x1f"))) for l in out.splitlines() if l]
 
-def lane_log(lane, n=60, whole=False):
+def lane_log(ad, lane, n=60, whole=False):
     """Every repo of a lane, interleaved newest first. Each row says which repo it came from,
     because across four repos a subject line alone does not tell you where you are."""
-    f = f"{LANES_DIR}/{lane}.md"
+    ad = ad or AD
+    f = f"{ad}/registry/lanes/{lane}.md"
     if not re.fullmatch(r"[\w.-]+", lane) or not os.path.exists(f): raise ValueError("unknown lane")
-    spec = parse_ws(f); sh_ = shorts(); rows = []
+    spec = parse_ws(f); sh_ = shorts(ad); rows = []
     for r in spec["repos"]:
-        p = f"{LANES}/{lane}/{r['repo']}"
+        p = f"{ad}/lanes/{lane}/{r['repo']}"
         if not os.path.exists(f"{p}/.git"): continue
         rng = None if whole else work_range(p, r["repo"], r.get("base"))
         for c in log(p, n, rng):
@@ -263,8 +304,9 @@ def compare_url(path, base):
     br = git(path, "branch", "--show-current"); base = (base or "").replace("origin/", "") or git(path, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD").replace("origin/", "")
     return f"https://github.com/{m.group(1)}/{m.group(2)}/compare/{base}...{br}?expand=1"
 
-def sessions(repo):
-    code, out, _ = sh([f"{BIN}/lane-sessions", repo, "8"]); return out if code == 0 else ""
+def sessions(repo, ad=None):
+    ad = ad or AD
+    code, out, _ = sh([f"{ad}/bin/lane-sessions", repo, "8"]); return out if code == 0 else ""
 
 def diff(path, file, staged, show_all=False):
     if is_secret(file):
@@ -363,27 +405,30 @@ def amend(path, message):
         return {"error": (e or o).strip()}
     return {"output": o.strip() or "amended"}
 
-def tracker_url():
+def tracker_url(ad=None):
     """Where ticket keys link to, from registry/config.yml. Empty means no tracker configured,
     and the page shows keys as plain text rather than guessing a host."""
+    ad = ad or AD
     try:
-        with open(f"{AD}/registry/config.yml") as fh:
+        with open(f"{ad}/registry/config.yml") as fh:
             m = re.search(r"^tracker:\s*$.*?^\s+url:\s*(\S+)\s*$", fh.read(), re.M | re.S)
             return m.group(1).strip().strip("\"'") if m else ""
     except OSError:
         return ""
 
-def run_ws(action, id_, repos=None, note=None):
+def run_ws(action, id_, repos=None, note=None, ad=None):
+    ad = ad or AD
+    bin_ = f"{ad}/bin"
     if not re.fullmatch(r"[A-Za-z0-9._-]+", id_ or ""): return 1, "", "bad id"
     if action == "start":
         specs = [s for s in (repos or "").split() if re.fullmatch(r"[\w.:@/-]+", s)]
         if not specs: return 1, "", "repos required"
-        return sh([f"{BIN}/lane-start", id_, *specs], timeout=300)
-    if action == "resume": return sh([f"{BIN}/lane-resume", id_], timeout=300)
+        return sh([f"{bin_}/lane-start", id_, *specs], timeout=300)
+    if action == "resume": return sh([f"{bin_}/lane-resume", id_], timeout=300)
     if action == "park":
         if not note: return 1, "", "resume note required"
-        return sh([f"{BIN}/lane-park", id_, note], timeout=120)
-    if action == "done": return sh([f"{BIN}/lane-done", id_], timeout=120)
+        return sh([f"{bin_}/lane-park", id_, note], timeout=120)
+    if action == "done": return sh([f"{bin_}/lane-done", id_], timeout=120)
     return 1, "", "unknown action"
 
 MEM = f"{AD}/memory"; KNOW = f"{AD}/knowledge"; INBOX = f"{AD}/.cache/memory-inbox"
@@ -448,8 +493,9 @@ REPO = {}          # (lane, repo) -> {"state","files","log","computed"}
 BOARD = {"data": None}
 SESS = {}          # repo -> (mtime_signature, text)
 
-def compute_repo(lane, repo):
-    try: p = lane_path(lane, repo)
+def compute_repo(lane, repo, ad=None):
+    ad = ad or AD
+    try: p = lane_path(ad, lane, repo)
     except ValueError: return None
     st = repo_state(p); fl = files(p) if st.get("exists") else []
     return {"state": st, "files": fl, "log": log(p) if st.get("exists") else [], "path": p, "computed": time.time()}
@@ -529,19 +575,56 @@ def pr_sweep():
 def sess_sweep():
     for repo in sorted(os.listdir(REPOS)): sessions_cached(repo)
 
-def repo_payload(lane, repo):
-    c = REPO.get((lane, repo)) or refresh_repo(lane, repo)
+def compute_board_for(ad):
+    """Same shape as compute_board(), but computed fresh for an arbitrary registered plane —
+    never touches REPO/BOARD/PR_CACHE, and is never called from the background loops. Used by
+    the board switcher: read-only, on demand, for whichever plane the client asked to view."""
+    sh_ = shorts(ad); defaults_map = defaults(ad); out = []
+    for f in lane_files(ad):
+        w = parse_ws(f"{ad}/registry/lanes/{f}")
+        for r in w["repos"]:
+            p = f"{ad}/lanes/{w['id']}/{r['repo']}"; r["short"] = sh_.get(r["repo"], r["repo"]); r["path"] = p
+            r.update(repo_state(p))
+            if r.get("exists"):
+                fl = files(p); r["staged"] = sum(1 for x in fl if x["staged"]); r["unstaged"] = sum(1 for x in fl if x["unstaged"])
+                pr_ = None  # never shells out to `gh` for a foreign plane on the hot path
+                rebase_target(p, r, pr_, r.get("base"), defaults_map=defaults_map)
+        out.append(w)
+    order = {"active": 0, "parked": 1}
+    out.sort(key=lambda w: (order.get(w["status"], 2), w["id"].lower()))
+    return {"lanes": out, "repos": sorted(os.listdir(f"{ad}/repos")), "generated": time.strftime("%H:%M:%S"),
+            "serverStartedAt": STARTED, "tracker": tracker_url(ad)}
+
+def board_for(ad):
+    """The entry point every /api/board request goes through. The home plane (this server's own
+    AD) keeps using the cached, background-refreshed BOARD["data"]; any other registered plane
+    is computed fresh, synchronously, on this one call — no second server, no shared cache."""
+    if ad == AD:
+        if BOARD["data"] is None: refresh_all()
+        return BOARD["data"]
+    return compute_board_for(ad)
+
+def repo_payload(ad, lane, repo):
+    if ad == AD:
+        c = REPO.get((lane, repo)) or refresh_repo(lane, repo)
+        cache_pr = True
+    else:
+        c = compute_repo(lane, repo, ad)
+        cache_pr = False
     if not c: raise ValueError("not a lane worktree")
-    st = c["state"]; key = (c["path"], st.get("branch", "")); cached = PR_CACHE.get(key)
-    pr_ = cached[1] if cached else None
-    if cached is None: threading.Thread(target=pr, args=(c["path"], st.get("branch", "")), daemon=True).start()
-    sess = SESS.get(repo, (None, None))[1]
-    if sess is None: threading.Thread(target=sessions_cached, args=(repo,), daemon=True).start(); sess = ""
+    st = c["state"]; key = (c["path"], st.get("branch", ""))
+    pr_ = None; sess = ""
+    if cache_pr:
+        cached = PR_CACHE.get(key)
+        pr_ = cached[1] if cached else None
+        if cached is None: threading.Thread(target=pr, args=(c["path"], st.get("branch", "")), daemon=True).start()
+        sess = SESS.get(repo, (None, None))[1]
+        if sess is None: threading.Thread(target=sessions_cached, args=(repo,), daemon=True).start(); sess = ""
     spec_base = None
     try:
-        spec_base = next((x.get("base") for x in parse_ws(f"{LANES_DIR}/{lane}.md")["repos"] if x["repo"] == repo), None)
+        spec_base = next((x.get("base") for x in parse_ws(f"{ad}/registry/lanes/{lane}.md")["repos"] if x["repo"] == repo), None)
     except Exception: pass
-    rebase_target(c["path"], st, pr_, spec_base)
+    rebase_target(c["path"], st, pr_, spec_base, defaults_map=(DEFAULTS if ad == AD else defaults(ad)))
     # both lists share a cap: widening the range must never show fewer commits than narrowing it
     wl = log(c["path"], 60, work_range(c["path"], repo, spec_base)) if st.get("exists") else []
     full = log(c["path"], 60) if st.get("exists") else []
@@ -569,22 +652,23 @@ class H(BaseHTTPRequestHandler):
         if not self.auth(): return
         q = self.q()
         try:
+            if route == "/api/planes": return self.send(200, planes_list())
+            ad = resolve_ad(q.get("plane"))
             if route == "/api/board":
-                if BOARD["data"] is None: refresh_all()
-                return self.send(200, BOARD["data"])
-            if route == "/api/repo": return self.send(200, repo_payload(q["lane"], q["repo"]))
-            if route == "/api/show": return self.send(200, show(lane_path(q["lane"], q["repo"]), q.get("sha", ""), q.get("all") == "1"))
-            if route == "/api/diff": return self.send(200, diff(lane_path(q["lane"], q["repo"]), q["file"], q.get("staged") == "1", q.get("all") == "1"))
+                return self.send(200, board_for(ad))
+            if route == "/api/repo": return self.send(200, repo_payload(ad, q["lane"], q["repo"]))
+            if route == "/api/show": return self.send(200, show(lane_path(ad, q["lane"], q["repo"]), q.get("sha", ""), q.get("all") == "1"))
+            if route == "/api/diff": return self.send(200, diff(lane_path(ad, q["lane"], q["repo"]), q["file"], q.get("staged") == "1", q.get("all") == "1"))
             if route == "/api/memory": return self.send(200, memory_tree())
             if route == "/api/memfile":
                 p = mem_path(q.get("scope", ""), q.get("file", ""))
                 return self.send(200, {"content": open(p).read() if os.path.exists(p) else "", "path": os.path.relpath(p, AD)})
             if route == "/api/spec":
-                f = f"{LANES_DIR}/{q['lane']}.md"; return self.send(200, {"spec": open(f).read() if os.path.exists(f) and re.fullmatch(r"[\w.-]+", q["lane"]) else ""})
+                f = f"{ad}/registry/lanes/{q['lane']}.md"; return self.send(200, {"spec": open(f).read() if os.path.exists(f) and re.fullmatch(r"[\w.-]+", q["lane"]) else ""})
             if route == "/api/lanelog":
                 whole = q.get("all") == "1"
-                return self.send(200, {"log": lane_log(q["lane"], whole=whole), "whole": whole})
-            if route == "/api/brief": return self.send(200, {"brief": sh([f"{BIN}/lane-brief", q["lane"]])[1]})
+                return self.send(200, {"log": lane_log(ad, q["lane"], whole=whole), "whole": whole})
+            if route == "/api/brief": return self.send(200, {"brief": sh([f"{ad}/bin/lane-brief", q["lane"]])[1]})
             return self.send(404, {"error": "unknown api"})
         except Exception as e: return self.send(400, {"error": str(e)})
     def do_POST(self):
@@ -622,12 +706,17 @@ class H(BaseHTTPRequestHandler):
                 else: return self.send(400, {"error": "unknown ref action"})
                 code, out, err = sh(args, timeout=60); refresh_all()
                 return self.send(200 if code == 0 else 400, {"ok": code == 0, "output": (out + err).strip()})
+            # Every state-changing route below resolves `ad` from `body["plane"]` here, once,
+            # against the registry — never trusted beyond "is this a name actually in
+            # planes.json" — so a mutation always lands in the plane it says it is scoped to,
+            # never silently in whichever plane the server happens to have started in.
+            ad = resolve_ad(body.get("plane"))
             if route == "/api/lane":
-                code, out, err = run_ws(body.get("action"), body.get("id"), body.get("repos"), body.get("note"))
+                code, out, err = run_ws(body.get("action"), body.get("id"), body.get("repos"), body.get("note"), ad=ad)
                 return self.send(200 if code == 0 else 400, {"ok": code == 0, "output": (out + err).strip()})
-            p = lane_path(body["lane"], body["repo"])
+            p = lane_path(ad, body["lane"], body["repo"])
             if route == "/api/pr":
-                w = parse_ws(f"{LANES_DIR}/{body['lane']}.md"); base = next((r.get("base") for r in w["repos"] if r["repo"] == body["repo"]), None)
+                w = parse_ws(f"{ad}/registry/lanes/{body['lane']}.md"); base = next((r.get("base") for r in w["repos"] if r["repo"] == body["repo"]), None)
                 url = compare_url(p, base); return self.send(200 if url else 400, {"ok": bool(url), "url": url, "output": "" if url else "origin is not a GitHub URL"})
             if route == "/api/discard":
                 r = discard(p, body.get("files") or [])
@@ -667,9 +756,10 @@ class H(BaseHTTPRequestHandler):
             elif route == "/api/pull":
                 code, out, err = sh(["git", "-C", p, "pull", "--ff-only"], timeout=180)
             else: return self.send(404, {"error": "unknown api"})
-            refresh_repo(body["lane"], body["repo"])
-            if route in ("/api/push", "/api/pull"): PR_CACHE.pop((p, git(p, "branch", "--show-current")), None)
-            with LOCK: BOARD["data"] = compute_board()
+            if ad == AD:
+                refresh_repo(body["lane"], body["repo"])
+                if route in ("/api/push", "/api/pull"): PR_CACHE.pop((p, git(p, "branch", "--show-current")), None)
+                with LOCK: BOARD["data"] = compute_board()
             return self.send(200 if code == 0 else 400, {"ok": code == 0, "output": (out + err).strip()})
         except Exception as e: return self.send(400, {"error": str(e)})
 

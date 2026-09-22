@@ -125,6 +125,9 @@ input:focus,textarea:focus{outline:none;border-color:var(--accent);
 #cmd .brand{font:500 13px/1 var(--sans);letter-spacing:-.01em;display:inline-flex;align-items:center;gap:8px;
   cursor:pointer;white-space:nowrap}
 #cmd .brand::before{content:"";width:7px;height:7px;border-radius:2px;background:var(--accent)}
+#cmd .planeSel{font:400 11px/1 var(--mono);color:var(--muted);background:var(--surface);border:1px solid var(--line);
+  border-radius:5px;height:26px;padding:0 6px;max-width:160px}
+#cmd .planeSel:hover{color:var(--ink)}
 #cmd .crumb{font-family:var(--mono);font-size:12px;display:flex;align-items:center;gap:8px;color:var(--muted);
   min-width:0;overflow:hidden}
 #cmd .crumb b{color:var(--ink);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

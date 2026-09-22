@@ -11,12 +11,46 @@ function applyTheme(v){if(v==='light'||v==='dark')document.documentElement.datas
 
 const S={view:'home',board:null,lane:null,repo:null,sel:{},data:null,diff:null,diffKey:'',busy:null,dialog:false,
   filter:'',startedAt:null,fails:0,diffAll:false,mem:null,mscope:'cross',mfile:null,
-  pal:{open:false,q:'',rows:[],i:0}};
+  pal:{open:false,q:'',rows:[],i:0},
+  // which registered control plane the board is scoped to right now. null (or 'home') means
+  // whichever plane the server was started from/inside — the least-surprising default. Any
+  // other value is a name from /api/planes, threaded onto every request by api() below so no
+  // individual call site (board/repo/diff/stage/commit/…) has to know about plane switching.
+  plane:null,planes:null};
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const api=async(p,o={})=>{const r=await fetch(p,{...o,headers:{'X-Token':T,'Content-Type':'application/json'}});let j={};try{j=await r.json()}catch{}
+const api=async(p,o={})=>{
+  let body=o.body;
+  if(S.plane&&S.plane!=='home'){
+    if(o.method==='POST'){let obj={};try{obj=JSON.parse(body||'{}')}catch{};obj.plane=S.plane;body=JSON.stringify(obj)}
+    else p+=(p.includes('?')?'&':'?')+'plane='+encodeURIComponent(S.plane);
+  }
+  const r=await fetch(p,{...o,body,headers:{'X-Token':T,'Content-Type':'application/json'}});let j={};try{j=await r.json()}catch{}
   if(r.status===403){toast('err','Server restarted — reload the page');throw new Error('restarted')}
   if(!r.ok)throw Object.assign(new Error(j.error||j.output||r.statusText),{output:j.output});return j};
+
+/* ---------- plane switcher: read-only selection, never a second server/tab ---------- */
+function planeDisplayName(name){
+  if(!name||name==='home')return(S.planes?.planes||[]).find(p=>p.home)?.name||'home';
+  return name;
+}
+function updateTitle(){document.title='lane-board — '+planeDisplayName(S.plane)}
+async function loadPlanes(){
+  try{S.planes=await api('/api/planes')}catch{S.planes=null;return}
+  const sel=$('#planeSel');if(!sel)return;
+  const list=S.planes.planes||[];
+  if(list.length<2){sel.classList.add('hidden');updateTitle();return}
+  sel.classList.remove('hidden');
+  sel.innerHTML=list.map(p=>`<option value="${esc(p.name)}"${(S.plane?S.plane===p.name:p.home)?' selected':''}>${esc(p.name)}${p.home?' (this)':''}</option>`).join('');
+  updateTitle();
+}
+async function switchPlane(name){
+  // Not persisted across reloads on purpose: a fresh load always defaults back to the plane the
+  // server was started from/inside, per docs/board.md — the least-surprising behavior.
+  S.plane=name;updateTitle();
+  S.board=null;S.boardSig=null;S.lane=null;S.repo=null;S.data=null;
+  await loadBoard();renderHome();renderCrumb();goHome();
+}
 /* where you were: a browser refresh should not cost you your place. Home stays the
    fallback for a first visit or a lane that has since gone away. */
 const LSg=(k,d)=>{try{return localStorage.getItem(k)??d}catch{return d}};
@@ -950,6 +984,7 @@ document.addEventListener('click',e=>{
   const h=e.target.closest('.hrow');if(h){showCommit(h.dataset.sha);return}
 });
 $('#homeBtn').onclick=goHome;
+$('#planeSel').onchange=e=>switchPlane(e.target.value);
 $('#sheetClose').onclick=closeSheet;
 $('#aboutBtn').onclick=()=>{if(cur())openSheet()};
 $('#memBtn').onclick=()=>setView(S.view==='memory'?(S.lane?'work':'home'):'memory');
@@ -1021,6 +1056,8 @@ function helpDlg(){openDlg(`<h3>Keys</h3><div class="hint">Navigation is the pal
 (async function boot(){
   applyTheme((()=>{try{return localStorage.getItem('lane-theme')||'system'}catch{return'system'}})());
   $('#home').classList.remove('hidden');
+  updateTitle();
+  await loadPlanes();
   await loadBoard();
   const h=new URLSearchParams(location.hash.replace(/^#/,''));
   const wantWs=h.get('lane')||LSg('lane-last','');
