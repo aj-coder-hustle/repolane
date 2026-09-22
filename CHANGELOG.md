@@ -8,7 +8,23 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Slash commands could silently report a completely different repolane installation's state.**
+  Every `.claude/commands/*.md` file (`lane-brief`, `lane-done`, `lane-help`, `lane-park`,
+  `lane-resume`, `lane-sessions`, `lane-start`, `status`) invoked its script as `/bin/<name>` (a
+  leading slash) or, for `lane-start`, as `$AD/bin/lane-start` — `$AD` was never an actual
+  exported environment variable, only ever computed locally inside each script. On a machine
+  with more than one repolane install, both forms resolve through a plain `PATH` lookup instead
+  of the current project, landing on whichever installation happens to be on `PATH` — reported
+  live: a fresh `lane-start`'d lane, then `/lane-brief` on the very same id, said "no lane
+  'pr-review'. Active lanes: SHOP-412 SHOP-418" — a real, unrelated repolane checkout's lanes,
+  reported as if they were the current project's. Both forms now use `$CLAUDE_PROJECT_DIR`
+  (Claude Code's own, actually-exported signal for "which project is this"), the same variable
+  every hook in `.claude/settings.json` already uses correctly. `permissions.allow`'s patterns
+  for the affected read-only commands (`lane-status`, `lane-brief`, `lane-menu`,
+  `lane-sessions`) updated to match the new invocation text (Bash permission rules match literal
+  command text, not the resolved program).
 
 ## [0.7.1] — 2026-09-21
 
