@@ -8,6 +8,10 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.7.2] — 2026-09-22
+
 ### Fixed
 
 - **Slash commands could silently report a completely different repolane installation's state.**
@@ -305,7 +309,8 @@ paths that get walked every day.
   the board fetches its typefaces from Google Fonts, so "no network calls beyond its own server" was
   false; [`docs/board.md`](docs/board.md) now says so, and how to remove them.
 
-[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/aj-oss-tools/repolane/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/aj-oss-tools/repolane/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/aj-oss-tools/repolane/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/aj-oss-tools/repolane/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/aj-oss-tools/repolane/compare/v0.5.0...v0.6.0
