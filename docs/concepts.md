@@ -30,8 +30,15 @@ of those to it. Point `origin` at your own private repo, then re-enable push you
 Two things follow directly:
 
 - **This checkout is where the plane lives.** There is nothing to "deploy" or "install" beyond
-  `lane install` putting `lane` and the long-form commands on your `PATH` — they still point back
-  at this same folder.
+  `lane install` registering this checkout in `~/.local/share/lane/planes.json` (the one piece of
+  genuinely machine-global state — a small registry of every checkout you've registered, and
+  which one is `active`) and putting `lane` plus the long-form commands on your `PATH`. That
+  `lane` is a small, stable dispatcher that is never repointed at one specific checkout again —
+  it routes each call to whichever registered plane applies (being physically inside a project's
+  directory tree wins outright; `active`, set with `lane use <name>`, is the fallback for running
+  from outside any of them). One clone is still one control plane; a machine can now cleanly have
+  several registered at once, which is what makes it safe to run `lane install` from a second or
+  third project without breaking whichever one you were already using.
 - **Upgrading means updating THIS checkout in place**, not replacing it or cloning a fresh one.
   `lane upgrade` (or the manual recipe when it refuses) pulls new code from upstream into the same
   folder that holds your registry, memory and knowledge — see

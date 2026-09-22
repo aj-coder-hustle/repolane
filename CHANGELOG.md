@@ -8,7 +8,41 @@ written down. Inside a git checkout it also says how far past the release tag yo
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **A machine can now register more than one control plane at once.** `~/.local/share/lane/planes.json`
+  holds every checkout `lane install` has registered and which one is `active`; a new `lane use [<name>]`
+  lists them (with which is `active` and which the current directory resolves to) or switches `active`.
+  `~/.local/bin/lane` is now a small, stable, generic dispatcher that is never repointed at one specific
+  checkout again — on every call it resolves which registered plane applies (being physically inside a
+  project's directory tree always wins over `active`) and `exec`s that checkout's own real `lane`. `lane
+  install` writes this dispatcher and registers the current checkout, and only changes `active` when
+  nothing is active yet or `--as`/`--make-active` say so — installing from a second or third project no
+  longer silently steals `active` away from whatever you were already using. An old, pre-registry install
+  is detected and migrated automatically. The 27 long-form commands (`lane-start`, `lane-brief`, …) are
+  now tiny stubs that route through the same stable dispatcher rather than each resolving independently.
+- `lane board` gained a plane switcher: with more than one registered plane, a dropdown in the command
+  bar loads another registered plane's data in place — no second server process, no second tab — while
+  defaulting to whichever plane the server was started from/inside. The page `<title>` now names the
+  plane currently shown, instead of the static `"lane-board"`.
+- `lane doctor` checks the new mechanism: whether the installed `lane` is the stable dispatcher (not a
+  stale pre-registry symlink), whether this checkout is registered at all, and whether resolving from
+  inside it actually picks it.
+
+### Fixed
+
+- **The general form of the cross-contamination bug described in `v0.7.2` above.** That fix covered one
+  specific symptom (slash commands resolving `lane-*` through a plain `PATH` lookup instead of
+  `$CLAUDE_PROJECT_DIR`). The underlying cause was broader and is now closed at the root: before this
+  change, `~/.local/bin/lane` (and every long-form command) was a symlink directly at ONE specific
+  checkout, machine-wide — only one project could ever be "installed" at a time, and running `lane
+  install` from a second project silently broke the first. On the machine this was found on, that caused
+  three separate incidents in one session: `lane-brief` run inside one project reported a completely
+  unrelated project's lanes because `PATH` pointed elsewhere; `lane upgrade` was reported "no such
+  command" because `PATH` pointed at a checkout that predated the command; and `lane board` opened empty
+  because `PATH` had since been repointed to a third, currently lane-less checkout. The multi-plane
+  registry above is the fix: a checkout is chosen by being physically inside its directory tree, never by
+  whatever a single machine-wide symlink happened to be pointed at last.
 
 ## [0.7.2] — 2026-09-22
 
