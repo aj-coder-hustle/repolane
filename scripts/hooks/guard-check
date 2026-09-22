@@ -400,20 +400,41 @@ if rows:
 PY
 fi
 
-# Is the `lane` on PATH actually this checkout? Piece 1 fixed `lane install` silently repointing
-# an existing symlink; this is how someone finds out they have a stale one, instead of hitting a
-# confusing symptom (wrong version, missing command) with no idea why. Advisory only.
+# Is the `lane` on PATH the stable, multi-plane-aware dispatcher, and does this checkout show up
+# correctly in its registry? `~/.local/bin/lane` used to be a symlink at ONE specific checkout
+# (only one plane usable machine-wide at a time — see CONTRIBUTING.md's incident writeup); it is
+# now a generic router over ~/.local/share/lane/planes.json, installed by `lane install` and never
+# repointed again. Three advisory-only checks, in order:
+#   (a) is `lane` on PATH actually that stable dispatcher, not a stale direct-symlink from before
+#       this fix (or missing entirely)
+#   (b) is THIS checkout registered in planes.json at all
+#   (c) if it is registered, does resolving from inside it actually pick it — this should be
+#       impossible if the resolver is correct, so a mismatch here is a canary, not an expected case
 if [ "$QUIET" = 0 ]; then
   found=$(command -v lane 2>/dev/null || true)
+  PLANES_PY="$HOME/.local/share/lane/planes.py"
   if [ -z "$found" ]; then
     echo
     echo "no \`lane\` found on PATH — run: lane install"
+  elif ! grep -q "stable, multi-plane-aware dispatcher" "$found" 2>/dev/null; then
+    echo
+    echo "the installed \`lane\` command ($found) is not the stable multi-plane dispatcher yet — run: lane install"
+  elif [ ! -f "$PLANES_PY" ]; then
+    echo
+    echo "repolane's plane registry helper is missing (~/.local/share/lane/planes.py) — run: lane install"
   else
-    resolved=$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$found" 2>/dev/null)
-    if [ "$resolved" != "$AD/lane" ]; then
-      echo
-      echo "the installed \`lane\` command points at $resolved, not this checkout ($AD) — run: lane install"
-    fi
+    status=$(python3 "$PLANES_PY" doctor "$AD" "$AD" 2>/dev/null)
+    case "$status" in
+      NOT_REGISTERED)
+        echo
+        echo "this checkout ($AD) is not registered as a plane — run: lane install" ;;
+      MISMATCH:*)
+        reg="${status#MISMATCH:}"; reg="${reg%%:*}"
+        picked="${status##*:}"
+        echo
+        echo "this checkout is registered as '$reg', but resolving lane from inside it currently"
+        echo "  picks '$picked' instead — this should never happen; check ~/.local/share/lane/planes.json" ;;
+    esac
   fi
 fi
 

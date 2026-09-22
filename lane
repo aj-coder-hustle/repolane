@@ -60,7 +60,8 @@ usage(){
   for c in $ORDER; do
     line=$(map "$c"); printf "    \e[1m%-10s\e[0m %s\n" "$c" "${line#*|}"
   done
-  printf '\n    %-10s %s\n\n' "install" "put lane on your PATH so it works from anywhere"
+  printf '\n    %-10s %s\n' "install" "put lane on your PATH so it works from anywhere"
+  printf '    %-10s %s\n\n' "use" "switch which registered plane is active (handled by the stable ~/.local/bin/lane dispatcher)"
   # scripts/local/<name> (docs/extending.md): any executable there is a `lane <name>` too. Listed
   # separately, after the built-ins, so a shadowed name is never confused for one of them.
   if [ -d "$AD/scripts/local" ]; then
@@ -123,66 +124,127 @@ case "$cmd" in
     fi
     printf 'lane %s%s\n' "$v" "$extra"; exit 0 ;;
   install)
-    dest="$HOME/.local/bin"; force=0
-    for a in "${@:2}"; do
+    dest="$HOME/.local/bin"; force=0; as_name=""; make_active=0
+    rest=("${@:2}"); i=0
+    while [ $i -lt ${#rest[@]} ]; do
+      a="${rest[$i]}"
       case "$a" in
         --force) force=1 ;;
         -y|--yes) force=1 ;;
+        --make-active) make_active=1 ;;
+        --as) i=$((i+1)); as_name="${rest[$i]:-}" ;;
         *) dest="$a" ;;
       esac
+      i=$((i+1))
     done
     mkdir -p "$dest" || exit 1
-    # An existing `dest/lane` symlink pointing somewhere other than this checkout is a stale
-    # install — a second checkout, a moved clone, a different worktree. Silently repointing it
-    # used to lose that with zero visibility; now it is either confirmed (a tty) or refused
-    # (no tty, e.g. an agent running install) unless --force says otherwise.
+    SHARE="$HOME/.local/share/lane"; mkdir -p "$SHARE" || exit 1
+    PY="$SHARE/planes.py"
+
+    # Multi-plane registry (piece 1/2, CONTRIBUTING.md): `~/.local/bin/lane` is no longer a
+    # symlink at THIS checkout — it becomes a small, stable, generic dispatcher that routes to
+    # whichever registered plane applies (directory-aware first, `active` as the fallback), and
+    # is never repointed again. Writing it is always safe to re-run: the content is identical no
+    # matter which checkout runs `lane install`, so this step alone can never take another
+    # project's usable install away — that silent theft was the entire bug being fixed here.
+    #
+    # Migration: an existing `dest/lane` that is a plain symlink (the old one-checkout-at-a-time
+    # model) is detected here, before it gets replaced, so whatever checkout it pointed at can be
+    # auto-registered rather than silently orphaned.
+    migrated_from=""
     if [ -L "$dest/lane" ]; then
-      cur_real="$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$dest/lane" 2>/dev/null)"
-      if [ -n "$cur_real" ] && [ "$cur_real" != "$AD/lane" ]; then
-        if [ "$force" = 1 ]; then
-          :
-        elif [ -t 0 ] && [ -t 2 ]; then
-          echo "$dest/lane currently points at: $cur_real"
-          echo "installing here would repoint it to: $AD/lane"
-          printf "repoint it? [y/N]: " >&2
-          read -r yn || true
-          case "${yn:-n}" in
-            [yY]*) : ;;
-            *) echo "lane install: aborted — nothing changed" >&2; exit 1 ;;
-          esac
-        else
-          echo "lane install: $dest/lane already points at $cur_real, not $AD/lane" >&2
-          echo "  refusing to silently repoint a non-interactive install — pass --force to proceed" >&2
-          exit 1
-        fi
+      old_real="$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$dest/lane" 2>/dev/null)"
+      if [ -n "$old_real" ] && [ -x "$old_real" ]; then
+        migrated_from="$(cd "$(dirname "$old_real")" && pwd)"
       fi
     fi
-    ln -sf "$AD/lane" "$dest/lane" && echo "linked $dest/lane -> $AD/lane"
-    # The long-form names (lane-start, lane-run, lane-memory …) are what the guard messages, the
-    # agent prompts and the docs tell you to type. Link them too, or every one of those
-    # instructions is a command not found.
-    # bin/ holds the commands and its own README. Runnable-and-not-a-directory is the question
-    # that matters; matching on the name would go stale the next time a command is added.
+
+    # `rm -f` before every write below: `dest/lane` (and each long-form name) may currently be a
+    # symlink at some checkout's real file — an old install, or even THIS checkout's own bin/.
+    # Writing through a symlink with `cp`/a redirect overwrites the checkout's source file, not
+    # just the link; removing the link first guarantees each write below lands on a fresh regular
+    # file at `dest/…`, never back into any checkout.
+    rm -f "$dest/lane"
+    cp "$AD/scripts/lane-stable-dispatcher" "$dest/lane" && chmod +x "$dest/lane"
+    cp "$AD/scripts/lane-planes.py" "$PY"
+    echo "installed the stable dispatcher: $dest/lane (routes by plane — see: lane use)"
+
+    if [ -n "$migrated_from" ] && [ "$migrated_from" != "$AD" ]; then
+      mig_name="$(basename "$migrated_from")"
+      out="$(python3 "$PY" register "$mig_name" "$migrated_from" 2>&1)" && echo "migrated old install: $out"
+    fi
+
+    # The 27 long-form names (lane-start, lane-brief, guard-check, …) had the exact same
+    # ambiguity bare `lane` did. Each is now a tiny stub that routes THROUGH the stable
+    # dispatcher's own resolution rather than reimplementing it 27 times. The short-name mapping
+    # is 1:1 and mechanical for 25 of them (strip `lane-`); `lane-memory` -> `note` and
+    # `guard-check` -> `doctor` are the two documented exceptions (see `map()` above) — spelled
+    # out here rather than guessed at.
+    LONGFORM_NAMES="lane-add lane-audit lane-board lane-brief lane-done lane-env-check lane-env-keys \
+      lane-find lane-gh lane-help lane-import lane-init lane-memory lane-menu lane-merge \
+      lane-merge-plan lane-nested lane-park lane-ref lane-resume lane-run lane-sessions \
+      lane-start lane-status lane-with lane-workspace guard-check"
+    longform_short(){ case "$1" in
+      lane-memory) echo note ;;
+      lane-merge-plan) echo plan ;;
+      guard-check) echo doctor ;;
+      lane-*) echo "${1#lane-}" ;;
+      *) return 1 ;;
+    esac; }
     is_cmd(){ [ -x "$1" ] && [ ! -d "$1" ]; }
-    # An earlier version linked every entry in bin/, so bin/README.md ended up on the PATH as a
-    # command. Take such a link back out — but only when it points into a Repolane bin/ (one with
-    # lane-start in it) at something that is not a command, never at an unrelated file the user
-    # keeps in the same folder.
+    # An earlier version symlinked bin/ entries directly, including bin/README.md. Clean up any
+    # stray link left from that — but only one that clearly came from a Repolane bin/ (has
+    # lane-start next to it), never an unrelated file the user keeps on their own PATH.
     for l in "$dest"/*; do
       [ -L "$l" ] || continue
       b=$(basename "$l"); [ "$b" = lane ] && continue
-      d=$(dirname "$(readlink "$l")")
+      case " $LONGFORM_NAMES " in *" $b "*) continue ;; esac
+      d=$(dirname "$(readlink "$l")" 2>/dev/null) || continue
       [ -e "$d/lane-start" ] || continue
       is_cmd "$d/$b" && continue
       rm -f "$l" && echo "unlinked $dest/$b — it is not a command; an older install put it on your PATH"
     done
     n=0
-    for f in "$AD"/bin/*; do
-      is_cmd "$f" || continue
-      b=$(basename "$f"); [ "$b" = lane ] && continue
-      ln -sf "$f" "$dest/$b" && n=$((n+1))
+    for name in $LONGFORM_NAMES; do
+      short="$(longform_short "$name")" || continue
+      rm -f "$dest/$name"
+      printf '#!/usr/bin/env bash\nexec "$(command -v lane)" %s "$@"\n' "$short" > "$dest/$name" \
+        && chmod +x "$dest/$name" && n=$((n+1))
     done
-    echo "linked $n long-form commands (lane-start, lane-run, …) into $dest"
+    echo "wrote $n long-form command stubs (lane-start, lane-run, …) into $dest"
+
+    # Register THIS checkout. Default name is the directory's basename; --as overrides. Re-running
+    # install from a checkout already registered updates that same entry rather than duplicating
+    # it. `active` is set only when this is the very first plane ever registered, or --make-active
+    # was passed explicitly — installing from a second project must never silently steal `active`
+    # away from whatever you were already using; that is the exact bug this whole piece fixes.
+    name="$as_name"
+    if [ -z "$name" ]; then
+      existing="$(python3 "$PY" find-by-path "$AD" 2>/dev/null)" && name="$existing"
+    fi
+    [ -n "$name" ] || name="$(basename "$AD")"
+    if [ "$make_active" = 1 ]; then
+      cur_active="$(python3 -c "
+import json,os
+try:
+    d=json.load(open(os.path.expanduser('~/.local/share/lane/planes.json')))
+    print(d.get('active') or '')
+except Exception:
+    print('')
+" 2>/dev/null)"
+      if [ -n "$cur_active" ] && [ "$cur_active" != "$name" ] && [ "$force" != 1 ] && [ -t 0 ] && [ -t 2 ]; then
+        echo "active plane is currently '$cur_active' — installing with --make-active would switch it to '$name'"
+        printf "switch active plane? [y/N]: " >&2
+        read -r yn || true
+        case "${yn:-n}" in [yY]*) : ;; *) echo "lane install: kept '$cur_active' active — plane still registered" >&2; make_active=0 ;; esac
+      fi
+    fi
+    if [ "$make_active" = 1 ]; then
+      python3 "$PY" register "$name" "$AD" --make-active
+    else
+      python3 "$PY" register "$name" "$AD"
+    fi
+
     case ":$PATH:" in
       *":$dest:"*) echo "ready — run: lane" ;;
       *) echo; echo "add this to your shell profile, then open a new terminal:"; echo "  export PATH=\"$dest:\$PATH\"" ;;

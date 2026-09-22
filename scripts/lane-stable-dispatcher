@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# lane — the stable, multi-plane-aware dispatcher.
+#
+# This file is written to ~/.local/bin/lane by `lane install` and, once installed, is NEVER
+# repointed at a specific checkout again — that repointing (one `~/.local/bin/lane` symlink per
+# machine, silently stolen by whichever checkout last ran `lane install`) was the entire class of
+# bug this file exists to close. See CONTRIBUTING.md and docs/troubleshooting.md's "Upgrade
+# friction" section for the incident.
+#
+# It is a ROUTER, not a reimplementation: it does not know `init`, `start`, `board`, etc. On every
+# call it works out which registered control plane applies (~/.local/share/lane/planes.json, via
+# the registry helper installed alongside it), then execs THAT checkout's own real `lane`
+# dispatcher — the one with the full command table — with the original arguments unchanged.
+#
+# The one thing it handles itself is `lane use`, because that command mutates the registry rather
+# than delegating to any one checkout.
+set -u
+
+PY="$HOME/.local/share/lane/planes.py"
+CWD="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+
+if [ ! -f "$PY" ]; then
+  echo "lane: repolane's registry helper is missing ($PY) — run \`lane install\` from a checkout" >&2
+  exit 1
+fi
+
+cmd="${1:-}"
+if [ "$cmd" = "use" ]; then
+  if [ -n "${2:-}" ]; then
+    python3 "$PY" use "$2" "$CWD"
+  else
+    python3 "$PY" list "$CWD"
+  fi
+  exit $?
+fi
+
+target="$(python3 "$PY" resolve "$CWD")"
+rc=$?
+[ $rc -eq 0 ] || exit $rc
+
+exec "$target/lane" "$@"
