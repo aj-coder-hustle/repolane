@@ -504,11 +504,17 @@ link that versions before 0.1.0 put on your PATH:
 lane install
 ```
 
-Re-running it on the same checkout is always friction-free. If `dest/lane` already exists as a
-symlink pointing at a *different* checkout — a second clone, a moved clone, a stale worktree — it
-no longer repoints it silently: with a terminal attached it shows both paths and asks for an
-explicit `y`; without one (an agent running `lane install`, a script) it refuses and tells you to
-pass `--force` if you actually mean to repoint it (`lane install [dest] --force`).
+Re-running it on the same checkout is always friction-free, on any machine, no matter how many
+other repolane checkouts are also registered there — `~/.local/bin/lane` is a small, stable,
+generic dispatcher (never a symlink at one specific checkout) that routes to whichever registered
+control plane applies, via `~/.local/share/lane/planes.json`; see
+["The clone is the control plane"](concepts.md#the-clone-is-the-control-plane) for the model and
+`lane use` in [`docs/commands.md`](commands.md) for switching which one is `active`. Running
+`lane install` from a second (or third) project just registers it alongside the others — it never
+silently takes over `active` from whatever you were already using, unless you pass
+`--make-active`. An old, pre-registry install (`dest/lane` still a plain symlink at one checkout)
+is detected and migrated automatically the next time `lane install` runs anywhere: the checkout it
+pointed at is registered under its directory name, and nothing needs cleaning up by hand.
 
 **`!! oversized guard files (rules are repeating)`** in `lane status` means a generated
 `settings.local.json` has grown past 20 KB because deny rules accumulated instead of being replaced.

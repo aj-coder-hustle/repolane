@@ -19,6 +19,25 @@ you picked, and a commit box. Side panels cover History, Notes, Refs, Spec and p
 Press the jump control in the top bar, or Command-K, to move between pieces of work without going
 back Home.
 
+## Multiple registered planes
+
+If your machine has more than one registered control plane (`~/.local/share/lane/planes.json` —
+see ["The clone is the control plane"](concepts.md#the-clone-is-the-control-plane) and `lane use`
+in [`docs/commands.md`](commands.md)), a plane switcher appears next to the `lane-board` brand in
+the top bar. The board opens showing whichever plane the server was actually started from/inside
+— the least surprising default, matching "I opened the board from this project" — and picking a
+different registered plane from the dropdown reloads the board's data scoped to that plane,
+in place, without starting a second server process or needing a second browser tab. The page
+title always names the plane currently shown.
+
+Switching which plane's data is being *read* needs nothing extra — it is read-only. Any
+state-changing action the board already supports (stage, commit, push, pull, discard, amend,
+start/resume/park/done) is still validated server-side against the registry on every request and
+only ever applies to the plane it is scoped to; the server never trusts a plane name from the
+client beyond "is this actually a name in `planes.json`". The board still binds `127.0.0.1` only
+and still requires the per-run `X-Token` header for every state-changing route — switching planes
+does not loosen either.
+
 ## Notes
 
 Ticket keys link wherever `tracker.url` in `registry/config.yml` points. Blank means keys show as

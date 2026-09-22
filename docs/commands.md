@@ -10,7 +10,8 @@ right now, and `lane help` for this list in your terminal.
 | `lane init` | set this machine up (safe to re-run); `lane init --check` only verifies prerequisites (git, python3, gh, claude) and exits — changes nothing |
 | `lane add <git-url\|path> [name]` | bring a repo under management — a local checkout with no `origin` remote is registered as local-only |
 | `lane import` | bring past Claude conversations in — entirely optional; copies the conversation (original untouched); `--list` shows what was found and changes nothing |
-| `./lane install` | put `lane` and the long-form commands on your `PATH` — safe to re-run on the same checkout; repointing to a *different* checkout asks first (or refuses non-interactively) unless you pass `--force` |
+| `./lane install [dest] [--as <name>] [--make-active] [--force\|-y]` | put the stable, multi-plane `lane` dispatcher and the long-form commands on your `PATH`, and register this checkout in `~/.local/share/lane/planes.json` under `<name>` (default: the directory's basename). Always safe to re-run, from any checkout — it only makes `active` this checkout's plane when nothing is active yet, or when `--make-active` is passed (and that switch is confirmed first if it would change an already-set `active`, unless `--force`/`-y`). Migrates an old, pre-registry install automatically. |
+| `lane use [<name>]` | with no argument, lists every registered plane (path, which is `active`, which the current directory would resolve to); with a name, sets `active` to it |
 
 ## Doing the work
 
@@ -36,7 +37,7 @@ non-interactive run never deletes, only reports what it found.
 |---|---|
 | `lane status` | every repo, every lane, any drift, and the control plane's own git state |
 | `lane brief <id>` | catch up on one piece of work |
-| `lane board` | the same thing in a browser |
+| `lane board` | the same thing in a browser — opens showing whichever plane it was started from/inside; a switcher in the command bar (when more than one plane is registered) loads another registered plane's data in place, without starting a second server or tab — see [`docs/board.md`](board.md) |
 | `lane audit` | branches that look finished or stale |
 | `lane sessions <repo\|id>` | past Claude conversations — for a repo, unions every live and finished lane worktree, and notes conversations still sitting at its pre-Repolane checkout, not yet `lane import`ed |
 | `lane find <text>` | which lane touched this file, branch, commit or note |
@@ -94,7 +95,11 @@ lists any managed GitHub repo whose branch protection hasn't been checked with `
 `protection: sync_days` (`registry/config.yml`, 7 by default) — with the command to clear it. It
 only ever tells you; clearing a lane, or syncing a repo, is always a command you type — `lane sync`
 is never run for you. It also checks, advisory-only like the rest of this list: whether the `lane`
-resolved on your `PATH` actually points at this checkout (`lane install` if not); whether `gh` is
+on your `PATH` is actually the stable, multi-plane dispatcher rather than a stale, pre-registry
+symlink (`lane install` if not); whether this checkout is registered in
+`~/.local/share/lane/planes.json` at all (`lane install` if not); whether resolving `lane` from
+inside this checkout actually picks it — a canary that should never fire if the resolver logic is
+correct; whether `gh` is
 installed and authenticated (`lane sync`, `lane gh` need it); per active lane, whether what its
 spec file says it contains (`repo:`/`branch:` pairs) still matches what's actually checked out
 under `lanes/<id>/` on disk; any repo with a candidate secret/credential filename nobody has
@@ -122,5 +127,10 @@ upgrade, not a fallback for when something went wrong. On a successful fast-forw
 ## Long-form names
 
 Every command also exists as its own executable — `lane-start`, `lane-run`, `lane-memory` and so
-on — linked onto your `PATH` by `lane install`. They are what the guard messages and the agent
-prompts tell you to type, and they run from any directory without a `cd`.
+on — written onto your `PATH` by `lane install`. They are what the guard messages and the agent
+prompts tell you to type, and they run from any directory without a `cd`. Each one is a tiny stub
+that routes through the same stable, multi-plane `lane` dispatcher — `lane-brief` is exactly
+`lane brief`, `lane-env-check` is `lane env`, and so on — so they resolve to the same plane bare
+`lane` would from the same spot, never a second, separate resolution path. Two names don't follow
+the mechanical `lane-<word>` → `<word>` mapping: `lane-memory` routes to `lane note`, and
+`guard-check` (no `lane-` prefix) routes to `lane doctor`.
